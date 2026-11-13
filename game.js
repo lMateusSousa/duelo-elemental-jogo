@@ -51,6 +51,7 @@ const PERS = {
     corrida: 2.8, dashVel: 1350, puloDuplo: 0.95, pulosAr: 2, provocacao: 'Leve como o vento!',
     mov: { acel: 5800, freio: 5600, acelAr: 4300, queda: 1.0, derrapagem: 0.06, coyote: 0.14, buffer: 0.15 },
     especial: 'Mini Tornado', projetil: 'Rajada Celestial', final: 'Passo Veloz',
+    semPirueta: true, // pulo no ar sem girar (girando ficava de cabeça para baixo)
     mecanica: 'vento', // defender no tempo certo REPELE (empurra o oponente longe); o Mini Tornado PUXA e joga para cima
     stats: { forca: 3, vel: 5, defesa: 3, alcance: 4 },
     // sem folha 4x4: o jogo monta tudo a partir das animações dele (assets/ventokami_anim, pose 3/4 de luta)
@@ -89,12 +90,21 @@ const ATQ = {
 };
 const PROJ_HIT = { dano: 100, kb: 300, stun: 0.45 };
 
-// Plataformas de pedra (y = altura acima do chão). Dá para subir pulando e descer com baixo + pulo.
-const PLATAFORMAS = [
+// Plataformas (y = altura acima do chão). Dá para subir pulando e descer com baixo + pulo.
+// Cada mapa tem as suas: aplicarMapa() troca o conteúdo deste array no começo do round.
+const PLAT_RUINAS = [
   { x0: 470, x1: 730, y: 165 },
   { x0: 1270, x1: 1530, y: 165 },
   { x0: 860, x1: 1140, y: 300 },
 ];
+// Caverna de Cristal: sem plataformas no meio; cristais crescem das paredes e servem de degrau
+const PLAT_CRISTAL = [
+  { x0: 50, x1: 260, y: 150, lado: 1 },
+  { x0: 50, x1: 200, y: 300, lado: 1 },
+  { x0: 1740, x1: 1950, y: 150, lado: -1 },
+  { x0: 1800, x1: 1950, y: 300, lado: -1 },
+];
+const PLATAFORMAS = [...PLAT_RUINAS];
 
 /* ---------------- Processamento das folhas de sprites ---------------- */
 const FOLHAS = {};
@@ -548,8 +558,8 @@ const ANIM_MAPA = {
     passoCorrida: 320, dash: 5,
     voando: [2, 3, 4, 5], caido: [6, 7, 8], levantar: [0, 1, 2, 3, 4, 5, 6, 7, 8],
     provocar: [1, 4, 5, 6, 7, 8],
-    // pulo: 1-2 agacha · 3 sobe · 4-5 mortal no vento · 7 desce · pousa agachado
-    pulo: { impulso: [1, 2], voo: [3, 4, 5, 7], duplo: 4, despenca: 7, pouso: [2, 1] },
+    // pulo: 1-2 agacha · 3 sobe · 7 desce · pousa agachado (sem o mortal 4-6: ficava de cabeça para baixo)
+    pulo: { impulso: [1, 2], voo: [3, 3, 7, 7], duplo: 3, despenca: 7, pouso: [2, 1] },
     atq: {
       soco1: ['soco', [1, 3, 3, 4]],
       soco2: ['soco', [4, 5, 5, 6, 7]],
@@ -649,6 +659,7 @@ function quadroAnim(f) {
     case 'air': {
       const q = A.pulo;
       if (!q) return null;
+      if (f.bolaAr > 0) return ciclo('idle', G.t * 7 / 8); // em pé em cima da bola de ar
       if (f.agarrada && M.parede && A[M.parede[0]]) { const s = M.parede[1]; return A[M.parede[0]][s[Math.floor(G.t * 6) % s.length]] || null; } // grudada na parede
       if (A.puloBola && !f.puloDuplo) {
         // pulo bolinha: impulso → sobe encolhendo → BOLINHA (2 quadros girando) → desenrola → pernas prontas
@@ -899,7 +910,103 @@ function transfMundo(cam, shx = 0, shy = 0) {
   ctx.setTransform(cam.zoom, 0, 0, cam.zoom, -cam.x * cam.zoom + shx, H - H * cam.zoom + (cam.y || 0) * cam.zoom + shy);
 }
 
+/* ---------------- Mapas ----------------
+ * 'ruinas'  = cenário original desenhado por código.
+ * 'cristal' = Caverna de Cristal (arte do usuário em assets/cenario_cristal.webp) com PAREDES DE CRISTAL
+ *   nas bordas: quem é arremessado nelas RICOCHETEIA (volta e leva dano) e os poderes são REFLETIDOS.
+ */
+const MAPAS = [
+  { id: 'ruinas', nome: 'RUINAS DAS CEREJEIRAS' },
+  { id: 'cristal', nome: 'CAVERNA DE CRISTAL', img: 'assets/cenario_cristal.webp' }, // arte original do usuário
+];
+// cristal recortado da própria arte do mapa: monta as paredes e os degraus (mesmo traço do fundo)
+const IMG_CRISTAL = new Image(); IMG_CRISTAL.src = 'assets/cristal_parede.png';
+const cristalPronto = () => IMG_CRISTAL.complete && IMG_CRISTAL.naturalWidth > 0;
+// desenha o cristal com a base em (x, y), comprido 'comp', girado 'ang' (0 = em pé, ponta para cima)
+function desenharCristalImg(x, y, comp, ang, brilho = 0) {
+  if (!cristalPronto()) return;
+  const larg = comp * IMG_CRISTAL.naturalWidth / IMG_CRISTAL.naturalHeight;
+  ctx.save();
+  ctx.translate(x, y); ctx.rotate(ang);
+  ctx.drawImage(IMG_CRISTAL, -larg / 2, -comp, larg, comp);
+  if (brilho > 0) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = brilho * 0.7; ctx.drawImage(IMG_CRISTAL, -larg / 2, -comp, larg, comp); }
+  ctx.restore();
+}
+// troca as plataformas do mapa escolhido e recomeça o crescimento dos cristais
+function aplicarMapa() {
+  PLATAFORMAS.length = 0;
+  PLATAFORMAS.push(...(temCristal() ? PLAT_CRISTAL : PLAT_RUINAS));
+  G.cristalT0 = G.t;
+}
+const IMG_MAPA = {};
+for (const m of MAPAS) if (m.img) { const i = new Image(); i.src = m.img; IMG_MAPA[m.id] = i; }
+const CRISTAL = { larg: 70, alt: 380, danoRicochete: 45, velMin: 420 };
+const mapaAtual = () => G.mapa || 'ruinas';
+const temCristal = () => mapaAtual() === 'cristal';
+
+function desenharCenarioCristal(t, cam, shx, shy) {
+  const img = IMG_MAPA.cristal;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#0d2a2e'; ctx.fillRect(0, 0, W, H);
+  if (img && img.complete && img.naturalWidth) {
+    // fundo em parallax: cobre a tela com sobra e anda devagar com a câmera
+    const s = Math.max(H / img.naturalHeight, W / img.naturalWidth) * 1.18;
+    const iw = img.naturalWidth * s, ih = img.naturalHeight * s;
+    const vista = W / cam.zoom, k = clamp(cam.x / Math.max(1, ARENA_W - vista), 0, 1);
+    ctx.imageSmoothingEnabled = true; // a arte original, lisa
+    ctx.drawImage(img, -(iw - W) * k + shx * 0.3, H - ih + (cam.y || 0) * 0.2 + shy * 0.3, iw, ih);
+  }
+  // reflexo de vidro bem leve no chão (deixa a arte aparecer)
+  transfMundo(cam, shx, shy);
+  ctx.fillStyle = 'rgba(200,255,245,.18)'; ctx.fillRect(-200, CHAO, ARENA_W + 400, 400);
+  ctx.fillStyle = 'rgba(230,255,250,.45)'; ctx.fillRect(-200, CHAO, ARENA_W + 400, 2);
+  // paredes de cristal nas bordas
+  desenharParedeCristal(0, 1, t);
+  desenharParedeCristal(ARENA_W, -1, t);
+}
+
+// parede: vários cristais recortados da arte, de tamanhos e inclinações diferentes, colados na borda
+function desenharParedeCristal(xBorda, lado, t) {
+  const brilho = Math.max(0, ((G.cristalBrilho && G.cristalBrilho[lado > 0 ? 0 : 1]) || 0)) + Math.max(0, Math.sin(t * 1.5 + lado)) * 0.12;
+  // [distância da borda, altura, inclinação]
+  const cristais = [[-8, 430, 0.05], [30, 330, 0.18], [6, 260, -0.12], [62, 220, 0.32], [40, 150, 0.5], [86, 120, 0.62]];
+  for (const [dx, comp, ang] of cristais) desenharCristalImg(xBorda + lado * dx, CHAO + 10, comp, lado * ang, brilho);
+}
+
+// RICOCHETE: arremessado contra a parede de cristal volta quicando e leva dano
+function ricochetearCristal(f) {
+  if (!temCristal() || G.fase !== 'luta') return;
+  const naParede = f.x <= 50.5 ? 0 : f.x >= ARENA_W - 50.5 ? 1 : -1;
+  if (naParede < 0 || f.est !== 'hurt' || Math.abs(f.vx) < CRISTAL.velMin || f.ricochete > 0) return;
+  f.ricochete = 0.5;
+  f.vx = -f.vx * 0.55; f.vy = Math.max(f.vy, 420); f.solo = false;
+  f.hp = Math.max(1, f.hp - CRISTAL.danoRicochete); f.flash = 0.15; f.stun = Math.max(f.stun || 0, 0.4);
+  G.cristalBrilho = G.cristalBrilho || [0, 0]; G.cristalBrilho[naParede] = 1;
+  G.shake = Math.max(G.shake, 9); G.hitstop = Math.max(G.hitstop, 0.06);
+  textoFlutuante(f.x, CHAO - f.y - 200, 'RICOCHETE!', '#7fffe0', 13);
+  textoFlutuante(f.x, CHAO - f.y - 170, String(CRISTAL.danoRicochete), '#ffffff', 14);
+  particulas(f.x, CHAO - f.y - 80, 34, ['#7fffe0', '#c9a8ff', '#ffffff', '#ffc9ec'], 460, 0.6, 7, 300);
+}
+
+// REFLEXO: TODO poder que bate no cristal volta numa direção ALEATÓRIA e fica "solto" (acerta qualquer um).
+// Pode quicar de parede em parede até 3 vezes.
+function refletirCristal(p) {
+  if (!temCristal() || (p.reflexos || 0) >= 3) return false;
+  if ((p.x < CRISTAL.larg && p.vx < 0) || (p.x > ARENA_W - CRISTAL.larg && p.vx > 0)) {
+    const vel = Math.hypot(p.vx, p.vy || 0) * 1.1, ang = rand(-1.0, 1.0); // até ~57° para cima ou para baixo
+    const volta = p.vx < 0 ? 1 : -1;
+    p.vx = volta * vel * Math.cos(ang); p.vy = vel * Math.sin(ang);
+    p.reflexos = (p.reflexos || 0) + 1; p.refletido = true; p.solto = true; p.t = 0;
+    G.cristalBrilho = G.cristalBrilho || [0, 0]; G.cristalBrilho[p.x < ARENA_W / 2 ? 0 : 1] = 1;
+    particulas(p.x, CHAO - p.y, 20, ['#7fffe0', '#ffffff', '#c9a8ff'], 300, 0.4, 5, 0);
+    textoFlutuante(p.x, CHAO - p.y - 40, 'REFLETIDO!', '#7fffe0', 11);
+    return true;
+  }
+  return false;
+}
+
 function desenharCenario(t, dt, cam, shx = 0, shy = 0) {
+  if (temCristal()) { desenharCenarioCristal(t, cam, shx, shy); return; }
   // camada distante com cachoeiras animadas
   gA.drawImage(CENARIO_A, 0, 0);
   for (const q of QUEDAS) {
@@ -941,6 +1048,27 @@ function desenharPetalas(t, dt) {
 }
 
 function desenharPlataformas() {
+  if (temCristal()) {
+    // degraus: o mesmo cristal da arte, DEITADO, crescendo de dentro da parede no começo do round
+    if (!cristalPronto()) return;
+    const ar = IMG_CRISTAL.naturalWidth / IMG_CRISTAL.naturalHeight;
+    PLATAFORMAS.forEach((pl, i) => {
+      const y = CHAO - pl.y, lado = pl.lado || 1;
+      const k = clamp(((G.t - (G.cristalT0 ?? -9)) / 1.1) - i * 0.12, 0, 1), cresce = 1 - Math.pow(1 - k, 3);
+      const xBase = lado > 0 ? pl.x0 - 60 : pl.x1 + 60;              // nasce de dentro da parede
+      const comp = (pl.x1 - pl.x0 + 70) * cresce;
+      if (comp < 6) return;
+      const esp = Math.min(comp * ar, 70);                             // espessura (achatado para dar para pisar)
+      ctx.save();
+      ctx.translate(xBase, y + esp * 0.42);
+      ctx.rotate(lado * Math.PI / 2);                                  // ponta virada para a arena
+      ctx.drawImage(IMG_CRISTAL, -esp / 2, -comp, esp, comp);
+      const brilho = Math.max(0, Math.sin(G.t * 2 + i * 1.7)) * 0.25;
+      if (brilho > 0) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = brilho; ctx.drawImage(IMG_CRISTAL, -esp / 2, -comp, esp, comp); }
+      ctx.restore();
+    });
+    return;
+  }
   for (const pl of PLATAFORMAS) {
     const y = CHAO - pl.y;
     // pilares de sustentação
@@ -1206,7 +1334,7 @@ function iniciarSolo(id = 'geada') {
   const f = novoLutador(id, 0);
   f.x = ARENA_W / 2; f.face = 1;
   G.f = [f];
-  G.proj = []; G.part = []; G.textos = []; G.rastros = []; G.zonas = []; G.tornados = [];
+  G.proj = []; G.part = []; G.textos = []; G.rastros = []; G.zonas = []; G.tornados = []; aplicarMapa();
   G.fase = 'luta'; G.faseT = 0; G.cine = null; G.slow = 1; G.hitstop = 0; G.tempo = 99;
   atualizarCamera(0, true);
   anunciar('MODO LIVRE', 1.2, '#d6f3ff');
@@ -1228,7 +1356,12 @@ function teclaMenu(k) {
       const i = ORDEM_PERS.indexOf(s.p[s.etapa]);
       s.p[s.etapa] = ORDEM_PERS[(i + (k === 'dir' ? 1 : ORDEM_PERS.length - 1)) % ORDEM_PERS.length];
     }
-    if (k === 'ok') { s.etapa++; if (s.etapa >= 2) iniciarPartida(); }
+    // 3ª etapa: escolher o MAPA
+    if (s.etapa === 2 && (k === 'esq' || k === 'dir')) {
+      const i = MAPAS.findIndex((m) => m.id === mapaAtual());
+      G.mapa = MAPAS[(i + (k === 'dir' ? 1 : MAPAS.length - 1)) % MAPAS.length].id; aplicarMapa();
+    }
+    if (k === 'ok') { s.etapa++; if (s.etapa >= 3) iniciarPartida(); }
   } else if (G.tela === 'fim') {
     if (k === 'cima' || k === 'baixo') G.menuSel = 1 - G.menuSel;
     if (k === 'ok') { if (G.menuSel === 0) iniciarPartida(); else irPara('titulo'); }
@@ -1256,7 +1389,7 @@ function iniciarPartida() {
 
 function iniciarRound() {
   G.f = [novoLutador(G.sel.p[0], 0), novoLutador(G.sel.p[1], 1)];
-  G.proj = []; G.part = []; G.textos = []; G.rastros = []; G.zonas = []; G.tornados = [];
+  G.proj = []; G.part = []; G.textos = []; G.rastros = []; G.zonas = []; G.tornados = []; aplicarMapa();
   G.tempo = 99; G.fase = 'intro'; G.faseT = 0; G.cine = null; G.slow = 1; G.hitstop = 0;
   atualizarCamera(0, true);
   anunciar(`ROUND ${G.round}`, 1.3);
@@ -1326,7 +1459,8 @@ function fisica(f, dt) {
     // flutua no topo do pulo (sobe devagarinho, para no ar um instante, começa a descer devagar)
     if (Math.abs(f.vy) < 230 && !f.quedaRapida) g *= f.p.flutua || 0.6;
     else if (f.vy < 0) g *= f.p.mov.queda;                              // cai um pouco mais rápido do que sobe
-    if (f.est === 'dash') f.vy = Math.max(f.vy, 0) - GRAV * dt * 0.15;
+    if (f.bolaAr > 0 && f.est !== 'hurt') g = 0;                         // na bola de ar não cai
+    if (f.est === 'dash') f.vy = f.bolaAr > 0 ? 0 : Math.max(f.vy, 0) - GRAV * dt * 0.15;
     else f.vy = Math.max(f.vy - g * dt, -1500);
     f.y += f.vy * dt;
     if (f.vy <= 0) {
@@ -1340,6 +1474,7 @@ function fisica(f, dt) {
   }
   if (f.solo && (f.est === 'hurt' || f.est === 'caido' || f.est === 'ko' || f.est === 'atk')) f.vx *= Math.pow(0.0015, dt);
   f.x = clamp(f.x + f.vx * dt, 50, ARENA_W - 50);
+  ricochetearCristal(f);
 }
 
 /* ---------------- Ações ---------------- */
@@ -1592,6 +1727,17 @@ function atualizarLutador(f, o, inp, dt) {
       if (f.puloSegurado && !f.cpu && !inp.h.has('cima')) { f.puloSegurado = false; if (f.vy > 0) f.vy *= 0.5; }
       if (f.vy <= 0) f.puloSegurado = false;
       if (G.fase !== 'luta') break;
+      // VENTOKAMI na BOLA DE AR: voa livre (cima sobe, baixo desce), sem gravidade; ataca normal
+      if (f.bolaAr > 0) {
+        const alvoVy = inp.h.has('cima') ? BOLA_AR.sobe : inp.h.has('baixo') ? -BOLA_AR.sobe : 0;
+        f.vy = aproximar(f.vy, alvoVy, 2400 * dt); f.puloSegurado = false; f.quedaRapida = false;
+        if (f.y > BOLA_AR.teto) { f.y = BOLA_AR.teto; f.vy = Math.min(f.vy, 0); }
+        if (inp.p.has('atk') && !f.aereoUsado) { f.aereoUsado = true; iniciarAtq(f, 'aereo'); break; }
+        if (inp.p.has('dash') && !f.dashAr) { iniciarDash(f, d || f.face); break; }
+        if (inp.p.has('proj') && f.en >= ATQ.projetil.custo) { iniciarAtq(f, 'projetil'); break; }
+        if (f.aereoUsado && f.t > 0.4) f.aereoUsado = false; // na bola pode atacar de novo
+        break;
+      }
       if (inp.p.has('cima') && f.coyote > 0) { pular(f, inp); break; }
       // queda rápida: apertar para baixo no ar (depois de começar a cair) despenca
       if (inp.p.has('baixo') && f.vy < 250 && !f.quedaRapida) {
@@ -1759,14 +1905,22 @@ function atualizarProjeteis(dt) {
   for (const p of G.proj) {
     p.t += dt;
     p.x += p.vx * dt;
-    const alvo = G.f[0] === p.dono ? G.f[1] : G.f[0];
+    p.y += (p.vy || 0) * dt;
+    // refletido pelo cristal sai em diagonal: quica no chão e no teto
+    if (p.vy) { if (p.y < 20 && p.vy < 0) p.vy = -p.vy; if (p.y > 520 && p.vy > 0) p.vy = -p.vy; }
+    // depois de refletido o poder fica "solto": acerta QUALQUER um (até quem atirou)
+    const alvos = p.solto ? G.f : [G.f[0] === p.dono ? G.f[1] : G.f[0]];
     const cx = { x0: p.x - 24, x1: p.x + 24, y0: p.y - 24, y1: p.y + 24 };
-    if (alvo && vulneravel(alvo) && sobrepoe(cx, caixaCorpo(alvo))) {
+    for (const alvo of alvos) {
+      if (p.morto || !alvo || !vulneravel(alvo) || !sobrepoe(cx, caixaCorpo(alvo))) continue;
+      if (p.solto && p.t < 0.15) continue; // acabou de bater no cristal
       p.morto = true;
-      aplicarDano(p.dono, alvo, PROJ_HIT, Math.sign(p.vx), p.x, CHAO - p.y);
+      const atacante = alvo === p.dono ? (G.f[0] === alvo ? G.f[1] : G.f[0]) : p.dono;
+      aplicarDano(atacante, alvo, PROJ_HIT, Math.sign(p.vx), p.x, CHAO - p.y);
     }
     const c = p.elem === 'fogo' ? ['#ff5a3c', '#ffb347', '#ffd166'] : p.elem === 'eletrico' ? ['#b45cff', '#7ff3ff', '#fff27a'] : ['#9fe0ff', '#d6f3ff', '#ffffff'];
     if (Math.random() < 0.8) G.part.push({ x: p.x - Math.sign(p.vx) * 20, y: CHAO - p.y + rand(-10, 10), vx: -p.vx * 0.1, vy: rand(-40, 40), vida: 0.35, t: 0, cor: escolha(c), tam: rand(3, 7), grav: 0 });
+    refletirCristal(p);
     if (p.x < -60 || p.x > ARENA_W + 60 || p.t > 2.5) p.morto = true;
   }
   for (let i = 0; i < G.proj.length; i++) for (let j = i + 1; j < G.proj.length; j++) {
@@ -1851,6 +2005,20 @@ const CARGA_MAX = 3, PARALISA_DUR = 0.75;
 /* VENTOKAMI · MINI TORNADO: sai na frente, anda devagar, PUXA quem estiver perto e,
  * ao pegar, joga para cima (bom para começar combo no ar). Um acerto por tornado. */
 const REPELE_JANELA = 0.3; // segundos depois de levantar a guarda em que a defesa repele
+// BOLA DE AR: segurar ↓ por 7 s → voa por 15 s (cima sobe, baixo desce, sem gravidade)
+const BOLA_AR = { segurar: 7, dura: 15, sobe: 420, teto: 470 };
+function desenharBolaAr(f) {
+  if (!(f.bolaAr > 0)) return; // (sem anel nem contador na tela, a pedido)
+  const x = f.x, y = CHAO - f.y + 8; // sem piscar no fim: só acaba
+  ctx.save();
+  ctx.globalAlpha = 0.75;
+  const gr = ctx.createRadialGradient(x, y - 6, 6, x, y, 70);
+  gr.addColorStop(0, 'rgba(255,255,255,.9)'); gr.addColorStop(0.6, 'rgba(201,168,255,.55)'); gr.addColorStop(1, 'rgba(255,111,200,.15)');
+  ctx.fillStyle = gr; ctx.beginPath(); ctx.ellipse(x, y, 70, 26, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = 2;
+  for (let i = 0; i < 3; i++) { const a = G.t * 6 + i * 2.1; ctx.beginPath(); ctx.ellipse(x, y, 58 - i * 14, 18 - i * 4, 0, a, a + 2.2); ctx.stroke(); }
+  ctx.restore();
+}
 const TORNADO = { vel: 190, vida: 1.5, alcPuxa: 230, forcaPuxa: 260, hit: { dano: 50, kb: 60, stun: 0.7 } }; // dano era 70 (Ventokami ganhava 80% do Brasa)
 function criarTornado(f) {
   G.tornados.push({ dono: f, x: f.x + f.face * 90, y: superficieDe(f), dir: f.face, t: 0, acertou: false });
@@ -1909,6 +2077,7 @@ function desenharCargaE(f) {
 }
 
 function atualizarMecanicas(dt) {
+  if (G.cristalBrilho) G.cristalBrilho = G.cristalBrilho.map((b) => Math.max(0, b - dt * 2)); // brilho da parede de cristal apaga
   for (const z of G.zonas) {
     z.vida -= dt;
     if (z.tipo === 'fogo' && z.vida > 0) {
@@ -1938,7 +2107,24 @@ function atualizarMecanicas(dt) {
       if (f.furia <= 0) { f.furia = 0; f.calor = 0; f.armadura = 0; textoFlutuante(f.x, CHAO - f.y - 200, 'esfriou...', '#c9bfb8', 10); }
     } else if (f.calor > 0) f.calor = Math.max(0, f.calor - RAIVA_ESFRIA * dt);
     if (f.congelado > 0) f.congelado = Math.max(0, f.congelado - dt);
+    if (f.ricochete > 0) f.ricochete -= dt;
     if (f.paralisado > 0) f.paralisado = Math.max(0, f.paralisado - dt);
+    // VENTOKAMI: segurar ↓ (defendendo) 7 s → sobe numa BOLA DE AR e voa por 15 s
+    if (base.mecanica === 'vento') {
+      if (f.bolaAr > 0) {
+        f.bolaAr -= dt;
+        if (f.derrubado || f.est === 'ko') f.bolaAr = 0;                     // derrubado estoura a bola
+        if (f.bolaAr <= 0) { f.bolaAr = 0; particulas(f.x, CHAO - f.y + 10, 16, coresElem(f), 220, 0.4, 6, 0); }
+      } else if (f.est === 'defesa' && G.fase === 'luta') {
+        f.baixoT = (f.baixoT || 0) + dt;
+        if (f.baixoT >= BOLA_AR.segurar) {
+          f.baixoT = 0; f.bolaAr = BOLA_AR.dura;
+          f.est = 'air'; f.solo = false; f.y += 4; f.vy = 360; f.t = 0;
+          anunciar('BOLA DE AR!', 0.9, '#ff6fc8');
+          particulas(f.x, CHAO - f.y, 30, coresElem(f), 320, 0.5, 7, 0);
+        }
+      } else f.baixoT = 0;
+    }
     if (f.est === 'defesa' && f.estAnt !== 'defesa') f.defDesde = G.t; // quando levantou a guarda (para o REPELIR)
     f.estAnt = f.est;
     // Faísca é uma bateria: a energia enche sozinha com o tempo, sem parar para carregar
@@ -2508,7 +2694,7 @@ function poseDe(f) {
       // no ar o corpo acompanha a direção do movimento; subindo, a cabeça "puxa" o corpo
       P.dobra = clamp(f.vx * f.face / (f.p.vel * 2.2), -0.15, 0.15) + v * 0.03;
       P.onda = 2; P.ondaFase = G.t * 6; P.ondaFreq = 1.5;
-      if (f.puloDuplo && f.t - (f.duploT0 || 0) < DUR_PIRUETA) {
+      if (f.puloDuplo && !f.p.semPirueta && f.t - (f.duploT0 || 0) < DUR_PIRUETA) {
         // pirueta no pulo duplo: uma volta inteira para frente, no tempo (bem visível)
         const k = clamp((f.t - (f.duploT0 || 0)) / DUR_PIRUETA, 0, 1);
         P.rot = f.face * suave(k) * Math.PI * 2; P.pivo = meio; P.dobra = 0; P.onda = 0; P.ex = 1; P.ey = 1;
@@ -2894,7 +3080,7 @@ function desenharLuta(dt) {
     else desenharSprite(r.id, r.q, r.x, CHAO - r.y, r.face, r.escala, true, 0, al);
   }
   const ordem = [...G.f].sort((a, b) => (a.est === 'atk' ? 1 : 0) - (b.est === 'atk' ? 1 : 0));
-  for (const f of ordem) { desenharLutador(f); desenharCongelado(f); desenharParalisado(f); }
+  for (const f of ordem) { desenharBolaAr(f); desenharLutador(f); desenharCongelado(f); desenharParalisado(f); }
   G.f.forEach((f, i) => { f.x = reais[i].x; f.y = reais[i].y; });
   desenharTornados(); for (const p of G.proj) desenharProjetil(p);
   for (const p of G.part) {
@@ -3015,7 +3201,20 @@ function desenharSelecao(dt) {
   desenharCartao(s.p[0], 250, s.etapa === 0, G.modo === 'cpuvscpu' ? 'CPU 1 (você escolhe)' : 'JOGADOR 1', '#ff8a5c');
   desenharCartao(s.p[1], 710, s.etapa === 1, r2, '#4fb6ff');
   texto('VS', W / 2, 280, 34, '#ffffff');
-  texto(s.etapa < 2 ? 'A/D ou setas: trocar · Enter: confirmar · Esc: voltar' : '', W / 2, 505, 10, '#a698c6');
+  texto('A/D ou setas: trocar · Enter: confirmar · Esc: voltar', W / 2, 505, 10, '#a698c6');
+  if (s.etapa === 2) {
+    // escolha do mapa por cima das cartas
+    const m = MAPAS.find((x) => x.id === mapaAtual()), img = IMG_MAPA[m.id];
+    ctx.fillStyle = 'rgba(10,6,20,.82)'; ctx.fillRect(0, 0, W, H);
+    texto('ESCOLHA O MAPA', W / 2, 60, 20, '#ffcf4a');
+    const bx = W / 2 - 300, by = 95, bw = 600, bh = 320;
+    ctx.strokeStyle = '#ffcf4a'; ctx.lineWidth = 4; ctx.strokeRect(bx - 4, by - 4, bw + 8, bh + 8);
+    if (img && img.complete && img.naturalWidth) ctx.drawImage(img, bx, by, bw, bh);
+    else if (CENARIO_B) { ctx.imageSmoothingEnabled = false; ctx.drawImage(CENARIO_B, 0, 0, LWB * 0.55, LH, bx, by, bw, bh); ctx.imageSmoothingEnabled = true; }
+    texto(`◀  ${m.nome}  ▶`, W / 2, by + bh + 40, 14, '#ffffff');
+    if (m.id === 'cristal') texto('paredes de cristal: arremessado RICOCHETEIA · poderes são REFLETIDOS', W / 2, by + bh + 68, 8, '#7fffe0', 'center', false);
+    texto('A/D ou setas: trocar · Enter: lutar · Esc: voltar', W / 2, 505, 10, '#a698c6');
+  }
 }
 
 function desenharFim(dt) {
