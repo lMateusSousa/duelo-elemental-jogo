@@ -51,10 +51,10 @@ const PERS = {
     corrida: 2.8, dashVel: 1350, puloDuplo: 0.95, pulosAr: 2, provocacao: 'Leve como o vento!',
     mov: { acel: 5800, freio: 5600, acelAr: 4300, queda: 1.0, derrapagem: 0.06, coyote: 0.14, buffer: 0.15 },
     especial: 'Mini Tornado', projetil: 'Rajada Celestial', final: 'Passo Veloz',
+    mecanica: 'vento', // defender no tempo certo REPELE (empurra o oponente longe); o Mini Tornado PUXA e joga para cima
     stats: { forca: 3, vel: 5, defesa: 3, alcance: 4 },
-    // sem folha 4x4: o jogo monta tudo a partir das animações dele (assets/ventokami_anim)
-    soAnim: true, pixelNitido: true,
-    estilo: { sat: 1.35, con: 1.2, gama: 1.18 }, // contorno + cor mais forte para combinar com Brasa/Geada
+    // sem folha 4x4: o jogo monta tudo a partir das animações dele (assets/ventokami_anim, pose 3/4 de luta)
+    soAnim: true,
   },
   faisca: {
     id: 'faisca', nome: 'FAISCA', titulo: 'Gatinha Robô Elétrica', elem: 'eletrico',
@@ -67,7 +67,7 @@ const PERS = {
     stats: { forca: 3, vel: 5, defesa: 3, alcance: 3 },
     soAnim: true, // tudo a partir de assets/faisca_anim (cartao = arte grande para os menus)
     cartaoAjuste: { esc: 0.8, dx: -22 },
-    energiaSozinha: 3, // energia por segundo, sempre (não precisa parar para carregar)
+    energiaSozinha: 1.5, // era 3 (forte demais); energia por segundo, sempre (não precisa parar para carregar)
   },
 };
 const ORDEM_PERS = ['brasa', 'geada', 'ventokami', 'faisca'];
@@ -538,11 +538,27 @@ const ANIM_MAPA = {
     dano: [1, 2, 3, 4],
   },
   ventokami: {
-    // novo: por enquanto só parado e andar (o resto usa a pose base com os efeitos por código)
-    ciclos: { idle: [1, 2, 3, 4, 5, 6, 7, 8], walk: [1, 2, 3, 4, 5, 6, 7, 8] },
-    passoCorrida: 320, dash: 4,
-    pulo: { impulso: [1, 2], voo: [3, 4, 5, 6, 7], duplo: 5, despenca: 7, pouso: [8, 1] },
-    atq: {},
+    // em pé, de dois pés (pose da ficha); corrida 2 vira para a frente, 3-8 correndo
+    ciclos: {
+      idle: [1, 2, 3, 4, 5, 6, 7, 8], walk: [1, 2, 3, 4, 5, 6, 7, 8], corrida: [3, 4, 5, 6, 7, 8],
+      defesa: [1, 2, 1, 2], carga: [3, 4, 5, 6, 7, 8], vitoria: [1, 2, 3, 4, 5, 6, 7, 8],
+    },
+    repele: [3, 4], // explosão de vento da defesa quando REPELE
+    passoCorrida: 320, dash: 5,
+    voando: [2, 3, 4, 5], caido: [6, 7, 8], levantar: [0, 1, 2, 3, 4, 5, 6, 7, 8],
+    provocar: [1, 2, 3, 4, 5, 6, 7, 8],
+    // pulo: 1-2 agacha · 3 sobe · 4-6 mortal no vento · 7 desce · pousa agachado
+    pulo: { impulso: [1, 2], voo: [3, 4, 5, 6, 7], duplo: 5, despenca: 7, pouso: [2, 1] },
+    atq: {
+      soco1: ['soco', [1, 3, 3, 4]],
+      soco2: ['soco', [4, 5, 5, 6, 7]],
+      projetil: ['projetil', [1, 2, 3, 4, 5, 6, 7]],   // Rajada Celestial: meia-lua de vento
+      soco3: ['chute', [1, 2, 3, 4, 5, 6, 7]],          // chute giratório
+      corridaAtq: ['chute', [3, 4, 4, 5, 5, 6]],
+      aereo: ['chute', [3, 4, 5, 5, 6]],
+      especial: ['especial', [1, 2, 3, 4, 5, 6, 7, 8]], // Mini Tornado: vira redemoinho e solta o tornado
+      final: ['especial', [1, 2, 3, 4, 5, 6, 7]],
+    },
     dano: [1, 2, 3, 4],
   },
   faisca: {
@@ -690,7 +706,9 @@ function quadroAnim(f) {
       // arremessado (derrubado no ar): voa para trás com o clipe da queda, se houver
       if (f.derrubado && !f.solo && A.caido && M.voando) return seqK(A.caido, M.voando, f.t / 0.3);
       return seqK(A.dano, M.dano, f.t / 0.35);
-    case 'defesa': return ciclo('defesa', G.t * 6 / 4);
+    case 'defesa':
+      if (M.repele && A.defesa && G.t - (f.repeleT0 ?? -9) < 0.35) return seqK(A.defesa, M.repele, (G.t - f.repeleT0) / 0.35);
+      return ciclo('defesa', G.t * 6 / 4);
     case 'carga': return ciclo('carga', G.t * 10 / 8);
     case 'caido': case 'ko': return seqK(A.caido, M.caido, f.t / 0.35);   // cai e fica no último quadro
     case 'levantar': return seqK(A.levantar, M.levantar, f.t / (f.p.defesa > 1 ? 0.45 : 0.25));
@@ -942,10 +960,10 @@ function desenharPlataformas() {
 }
 
 /* ---------------- Entrada ---------------- */
-// 4 botões de golpe: ATAQUE, ESPECIAL, DEFESA, INVESTIDA (o resto sai da combinação com a direção;
-// veja traduzirEntrada). O pulo é a direção para cima.
-const MAPA_P1 = { KeyA: 'esq', KeyD: 'dir', KeyW: 'cima', KeyS: 'baixo', KeyJ: 'atk', KeyK: 'botaoEsp', KeyL: 'def', ShiftLeft: 'dash', Space: 'dash' };
-const MAPA_P2 = { ArrowLeft: 'esq', ArrowRight: 'dir', ArrowUp: 'cima', ArrowDown: 'baixo', Numpad1: 'atk', Numpad2: 'botaoEsp', Numpad3: 'def', Numpad0: 'dash' };
+// Um botão para cada golpe (a pedido: voltou do esquema de 4 botões). O pulo é a direção para cima;
+// segurar para baixo no chão = defender.
+const MAPA_P1 = { KeyA: 'esq', KeyD: 'dir', KeyW: 'cima', KeyS: 'baixo', KeyJ: 'atk', KeyK: 'proj', KeyL: 'esp', KeyU: 'carga', KeyI: 'sub', KeyO: 'final', ShiftLeft: 'dash', Space: 'dash', KeyP: 'provocar' };
+const MAPA_P2 = { ArrowLeft: 'esq', ArrowRight: 'dir', ArrowUp: 'cima', ArrowDown: 'baixo', Numpad1: 'atk', Numpad2: 'proj', Numpad3: 'esp', Numpad4: 'carga', Numpad5: 'sub', Numpad6: 'final', Numpad0: 'dash', Numpad7: 'provocar' };
 const ENT = [{ h: new Set(), p: new Set() }, { h: new Set(), p: new Set() }];
 const MENU_TECLA = {
   ArrowUp: 'cima', KeyW: 'cima', ArrowDown: 'baixo', KeyS: 'baixo', ArrowLeft: 'esq', KeyA: 'esq', ArrowRight: 'dir', KeyD: 'dir',
@@ -988,50 +1006,20 @@ window.addEventListener('blur', () => ENT.forEach((e) => e.h.clear()));
  * No controle, o direcional e o analógico esquerdo sempre andam (e "cima" também pula).
  */
 const ACOES_CFG = [
-  ['esq', 'Esquerda'], ['dir', 'Direita'], ['cima', 'Pular / cima'], ['baixo', 'Baixo'],
-  ['atk', 'ATAQUE'], ['botaoEsp', 'ESPECIAL'], ['def', 'DEFESA'], ['dash', 'INVESTIDA'],
+  ['esq', 'Esquerda'], ['dir', 'Direita'], ['cima', 'Pular / cima'], ['baixo', 'Baixo / defender'],
+  ['atk', 'Ataque'], ['proj', 'Projétil'], ['esp', 'Especial'], ['carga', 'Carregar energia'],
+  ['sub', 'Troca rápida'], ['final', 'Golpe final'], ['dash', 'Investida / correr'], ['provocar', 'Provocar'],
 ];
 const PADRAO_P1 = { ...MAPA_P1 }, PADRAO_P2 = { ...MAPA_P2 };
 // botões no layout padrão (Xbox / PlayStation): 0 A/✕ · 1 B/○ · 2 X/□ · 3 Y/△ · 4 LB · 5 RB · 6 LT · 7 RT · 8 Select · 9 Start
-const PADRAO_PAD = { cima: 0, botaoEsp: 1, atk: 2, def: 5, dash: 4 };
+const PADRAO_PAD = { cima: 0, esp: 1, atk: 2, proj: 3, carga: 4, dash: 5, sub: 6, final: 7, provocar: 8 };
 const MAPA_PAD = { ...PADRAO_PAD };
 const NOMES_BOTAO = ['A / ✕', 'B / ○', 'X / □', 'Y / △', 'LB / L1', 'RB / R1', 'LT / L2', 'RT / R2', 'SELECT', 'START', 'L3', 'R3'];
 const CFG = { lin: 0, col: 0, esperando: false, aviso: '', avisoT: 0 };
-const CHAVE_CFG = 'duelo-elemental-controles-4botoes'; // chave nova: o mapa antigo (8 botões) não vale mais
+const CHAVE_CFG = 'duelo-elemental-controles-1botao'; // chave nova: o mapa de 4 botões salvo não vale mais
 
-/*
- * Tradução dos 4 botões para as ações do lutador (as mesmas que a CPU usa):
- *  ATAQUE               → combo (correndo = ataque de corrida, no ar = aéreo)
- *  ESPECIAL sozinho     → projétil      · ←/→ + ESPECIAL → golpe especial
- *  ↓ + segurar ESPECIAL → carregar energia
- *  ATAQUE + ESPECIAL juntos, energia cheia → GOLPE FINAL
- *  DEFESA (segurar)     → defender (↓ também defende)
- *  INVESTIDA            → investida/correr · apanhando = troca rápida · ↓ + INVESTIDA parado = provocar
- */
-function traduzirEntrada(e, f) {
-  const h = new Set(), p = new Set();
-  for (const a of ['esq', 'dir', 'cima', 'baixo', 'atk', 'dash']) { if (e.h.has(a)) h.add(a); if (e.p.has(a)) p.add(a); }
-  const lado = h.has('esq') || h.has('dir');
-  const juntos = (e.p.has('botaoEsp') && (e.h.has('atk') || G.t - (f.ultAtkT || -9) < 0.12)) ||
-                 (e.p.has('atk') && e.h.has('botaoEsp'));
-  if (e.p.has('atk')) f.ultAtkT = G.t;
-  if (juntos && f.en >= 100) { p.add('final'); p.delete('atk'); }
-  else if (e.p.has('botaoEsp')) {
-    if (h.has('baixo')) {/* começa a carregar (abaixo) */}
-    else if (lado) p.add('esp');
-    else p.add('proj');
-  }
-  // ↓ + segurar ESPECIAL: carrega (e não defende)
-  if (e.h.has('botaoEsp') && h.has('baixo') && f.solo) { h.add('carga'); h.delete('baixo'); }
-  // botão DEFESA: segura a guarda (no chão vira o mesmo que segurar ↓)
-  if (e.h.has('def') && f.solo) h.add('baixo');
-  // INVESTIDA: apanhando = troca rápida; ↓ + INVESTIDA parado no chão = provocar
-  if (p.has('dash')) {
-    if (f.est === 'hurt') { p.delete('dash'); p.add('sub'); }
-    else if (h.has('baixo') && f.solo && Math.abs(f.vx) < 60 && !e.h.has('def')) { p.delete('dash'); p.add('provocar'); }
-  }
-  return { h, p };
-}
+// Um botão por golpe: as teclas já são as próprias ações do lutador (as mesmas que a CPU usa).
+function traduzirEntrada(e, f) { return e; }
 
 function trocarMapa(alvo, novo) { for (const k of Object.keys(alvo)) delete alvo[k]; Object.assign(alvo, novo); }
 function salvarControles() {
@@ -1191,7 +1179,7 @@ const G = {
   tela: 'carregando', t: 0, modo: 'cpu', menuSel: 0,
   sel: { etapa: 0, p: ['brasa', 'geada'] },
   f: [], vit: [0, 0], round: 1, tempo: 99, fase: 'intro', faseT: 0,
-  proj: [], part: [], textos: [], rastros: [], zonas: [], hitstop: 0, shake: 0, slow: 1, cine: null, anuncio: null, pausa: false, vencedor: -1,
+  proj: [], part: [], textos: [], rastros: [], zonas: [], tornados: [], hitstop: 0, shake: 0, slow: 1, cine: null, anuncio: null, pausa: false, vencedor: -1,
   cam: { x: (ARENA_W - W) / 2, zoom: 1 },
 };
 
@@ -1217,7 +1205,7 @@ function iniciarSolo(id = 'geada') {
   const f = novoLutador(id, 0);
   f.x = ARENA_W / 2; f.face = 1;
   G.f = [f];
-  G.proj = []; G.part = []; G.textos = []; G.rastros = []; G.zonas = [];
+  G.proj = []; G.part = []; G.textos = []; G.rastros = []; G.zonas = []; G.tornados = [];
   G.fase = 'luta'; G.faseT = 0; G.cine = null; G.slow = 1; G.hitstop = 0; G.tempo = 99;
   atualizarCamera(0, true);
   anunciar('MODO LIVRE', 1.2, '#d6f3ff');
@@ -1267,7 +1255,7 @@ function iniciarPartida() {
 
 function iniciarRound() {
   G.f = [novoLutador(G.sel.p[0], 0), novoLutador(G.sel.p[1], 1)];
-  G.proj = []; G.part = []; G.textos = []; G.rastros = []; G.zonas = [];
+  G.proj = []; G.part = []; G.textos = []; G.rastros = []; G.zonas = []; G.tornados = [];
   G.tempo = 99; G.fase = 'intro'; G.faseT = 0; G.cine = null; G.slow = 1; G.hitstop = 0;
   atualizarCamera(0, true);
   anunciar(`ROUND ${G.round}`, 1.3);
@@ -1363,6 +1351,7 @@ function iniciarAtq(f, nome) {
   if (nome === 'especial') {
     textoFlutuante(f.x, CHAO - f.y - 210, f.p.especial, f.p.cor2, 14); particulas(f.x + f.face * 60, CHAO - f.y - 90, 14, coresElem(f), 260, 0.5, 6, 0);
     if (f.p.mecanica === 'gelo' && f.solo) criarZona('gelo', f.x + f.face * 40, f.y, f); // Giro Glacial congela o chão em volta
+    if (f.p.mecanica === 'vento') criarTornado(f); // Mini Tornado: sai andando e puxa o oponente
   }
   if (nome === 'final') { anunciar(f.p.final, 1.1, f.p.cor2); particulas(f.x, CHAO - f.y - 90, 40, coresElem(f), 400, 0.7, 7, 0); }
 }
@@ -1406,6 +1395,16 @@ function avisoElem(mult, x, y) {
 function aplicarDano(at, df, def, dirX, px, py) {
   if (def.final) { iniciarCine(at, df); return; }
   const bloqueou = df.est === 'defesa' && df.face === -dirX;
+  // VENTOKAMI · REPELIR: defendeu logo que levantou a guarda → rajada empurra quem atacou para longe
+  if (bloqueou && df.p.mecanica === 'vento' && def !== PROJ_HIT && G.t - (df.defDesde || 0) < REPELE_JANELA) {
+    at.est = 'hurt'; at.t = 0; at.stun = 0.45; at.atq = null;
+    at.vx = -dirX * 950 / Math.sqrt(at.p.peso || 1); at.vy = 380; at.solo = false; at.face = dirX;
+    df.en = Math.min(100, df.en + 10); df.repeleT0 = G.t;
+    textoFlutuante(df.x, CHAO - df.y - 200, 'REPELIDO!', '#ff6fc8', 13);
+    particulas(df.x + df.face * 60, CHAO - df.y - 80, 30, coresElem(df), 480, 0.45, 6, 0);
+    G.hitstop = 0.08; G.shake = Math.max(G.shake, 7);
+    return;
+  }
   if (bloqueou) {
     const chip = Math.round(def.dano * 0.12);
     df.hp = Math.max(1, df.hp - chip);
@@ -1848,6 +1847,45 @@ function mecanicaNoGolpe(at, df, bloqueou) {
 }
 const CARGA_MAX = 3, PARALISA_DUR = 0.75;
 
+/* VENTOKAMI · MINI TORNADO: sai na frente, anda devagar, PUXA quem estiver perto e,
+ * ao pegar, joga para cima (bom para começar combo no ar). Um acerto por tornado. */
+const REPELE_JANELA = 0.3; // segundos depois de levantar a guarda em que a defesa repele
+const TORNADO = { vel: 190, vida: 1.5, alcPuxa: 230, forcaPuxa: 260, hit: { dano: 50, kb: 60, stun: 0.7 } }; // dano era 70 (Ventokami ganhava 80% do Brasa)
+function criarTornado(f) {
+  G.tornados.push({ dono: f, x: f.x + f.face * 90, y: superficieDe(f), dir: f.face, t: 0, acertou: false });
+}
+function atualizarTornados(dt) {
+  for (const z of G.tornados) {
+    z.t += dt; z.x = clamp(z.x + z.dir * TORNADO.vel * dt, 40, ARENA_W - 40);
+    const alvo = G.f[0] === z.dono ? G.f[1] : G.f[0];
+    if (!alvo || z.acertou || !vulneravel(alvo)) continue;
+    const dx = z.x - alvo.x, dy = alvo.y - z.y;
+    if (Math.abs(dx) < TORNADO.alcPuxa && dy > -40 && dy < 260) {
+      alvo.x = clamp(alvo.x + Math.sign(dx) * Math.min(Math.abs(dx), TORNADO.forcaPuxa * dt), 50, ARENA_W - 50); // puxa
+      if (Math.abs(dx) < 50 && dy < 200) {
+        z.acertou = true;
+        aplicarDano(z.dono, alvo, TORNADO.hit, z.dir, alvo.x, CHAO - alvo.y - 80);
+        if (alvo.est === 'hurt' && alvo.hp > 0) { alvo.vy = 820; alvo.solo = false; alvo.vx = z.dir * 40; } // joga para cima
+      }
+    }
+    if (Math.random() < 0.6) G.part.push({ x: z.x + rand(-40, 40), y: CHAO - z.y - rand(0, 180), vx: rand(-120, 120), vy: -rand(40, 140), vida: 0.4, t: 0, cor: escolha(['#ff6fc8', '#c9a8ff', '#8fb8ff', '#ffffff']), tam: rand(3, 6), grav: 0 });
+  }
+  G.tornados = G.tornados.filter((z) => z.t < TORNADO.vida && !(z.acertou && z.t > 0.35));
+}
+function desenharTornados() {
+  for (const z of G.tornados) {
+    const base = CHAO - z.y, a = Math.min(1, (TORNADO.vida - z.t) / 0.3, z.t / 0.15);
+    ctx.save(); ctx.globalAlpha = a; ctx.lineCap = 'round';
+    for (let i = 0; i < 9; i++) {
+      const k = i / 8, larg = 22 + k * 70, y = base - 10 - k * 190, giro = G.t * 14 + i * 0.9;
+      ctx.strokeStyle = ['rgba(201,168,255,.6)', 'rgba(255,111,200,.75)', 'rgba(143,184,255,.7)'][i % 3];
+      ctx.lineWidth = 6 - k * 2;
+      ctx.beginPath(); ctx.ellipse(z.x + Math.sin(giro) * 8, y, larg / 2, 9 + k * 6, 0, giro % (Math.PI * 2), giro % (Math.PI * 2) + 4.2); ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
 // raios em volta de quem está paralisado
 function desenharParalisado(f) {
   if (!(f.paralisado > 0)) return;
@@ -1900,6 +1938,8 @@ function atualizarMecanicas(dt) {
     } else if (f.calor > 0) f.calor = Math.max(0, f.calor - RAIVA_ESFRIA * dt);
     if (f.congelado > 0) f.congelado = Math.max(0, f.congelado - dt);
     if (f.paralisado > 0) f.paralisado = Math.max(0, f.paralisado - dt);
+    if (f.est === 'defesa' && f.estAnt !== 'defesa') f.defDesde = G.t; // quando levantou a guarda (para o REPELIR)
+    f.estAnt = f.est;
     // Faísca é uma bateria: a energia enche sozinha com o tempo, sem parar para carregar
     if (base.energiaSozinha && G.fase === 'luta' && f.est !== 'ko' && !G.cine) f.en = Math.min(100, f.en + base.energiaSozinha * dt);
     desenharCargaE(f);
@@ -2148,7 +2188,7 @@ function passo(dt) {
     const f = G.f[0];
     f.en = 100;
     atualizarLutador(f, ALVO_NULO, traduzirEntrada(ENT[0], f), dtj);
-    atualizarProjeteis(dtj);
+    atualizarProjeteis(dtj); atualizarTornados(dtj);
     atualizarCamera(dt);
     return;
   }
@@ -2175,7 +2215,7 @@ function passo(dt) {
     a.x = clamp(a.x, meio - MAXD / 2, meio + MAXD / 2);
     b.x = clamp(b.x, meio - MAXD / 2, meio + MAXD / 2);
   }
-  atualizarProjeteis(dtj);
+  atualizarProjeteis(dtj); atualizarTornados(dtj);
   atualizarCamera(dt);
 }
 
@@ -2754,7 +2794,8 @@ function desenharHUDSolo() {
     texto(a, W - 288, 34 + i * 22, 9, '#a698c6', 'left', false);
     texto(b, W - 28, 34 + i * 22, 9, '#ffffff', 'right', false);
   });
-  texto(`${teclasDe(MAPA_P1, 'atk')} ataque · ${teclasDe(MAPA_P1, 'botaoEsp')} especial (→ golpe, ↓ carrega) · ${teclasDe(MAPA_P1, 'def')} defesa · ${teclasDe(MAPA_P1, 'dash')} investida · ↑ pula · Esc: menu`, W / 2, 528, 8, '#ffffff');
+  const t1 = (a) => teclasDe(MAPA_P1, a);
+  texto(`${t1('atk')} ataque · ${t1('proj')} projétil · ${t1('esp')} especial · ${t1('carga')} carrega · ${t1('final')} final · ${t1('baixo')} defesa · ${t1('dash')} investida · Esc: menu`, W / 2, 528, 8, '#ffffff');
 }
 
 function desenharHUD() {
@@ -2780,10 +2821,10 @@ function desenharHUD() {
     if (f.p.mecanica === 'carga') desenharCargasE(f, esq ? bx : bx + 330 - 130, 126, esq);
     // lembrete das teclas de poder (só para quem joga)
     if ((esq && G.modo !== 'cpuvscpu') || G.modo === '2p') {
-      const mapa = esq ? MAPA_P1 : MAPA_P2, k = teclasDe(mapa, 'botaoEsp'), a = teclasDe(mapa, 'atk');
+      const mapa = esq ? MAPA_P1 : MAPA_P2, kp = teclasDe(mapa, 'proj'), ke = teclasDe(mapa, 'esp'), kf = teclasDe(mapa, 'final');
       const custo = ATQ.projetil.custo;
       const cor = f.en >= custo ? '#ffffff' : '#7a6d99';
-      texto(`${k} ${f.p.projetil} (${custo}) · →${k} ${f.p.especial} (${ATQ.especial.custo}) · ${a}+${k} FINAL`, esq ? bx : bx + 330, 114, 8, cor, esq ? 'left' : 'right');
+      texto(`${kp} ${f.p.projetil} (${custo}) · ${ke} ${f.p.especial} (${ATQ.especial.custo}) · ${kf} FINAL`, esq ? bx : bx + 330, 114, 8, cor, esq ? 'left' : 'right');
     }
     for (let v = 0; v < 2; v++) {
       const vx = esq ? bx + 150 + v * 22 : bx + 330 - 150 - v * 22;
@@ -2854,7 +2895,7 @@ function desenharLuta(dt) {
   const ordem = [...G.f].sort((a, b) => (a.est === 'atk' ? 1 : 0) - (b.est === 'atk' ? 1 : 0));
   for (const f of ordem) { desenharLutador(f); desenharCongelado(f); desenharParalisado(f); }
   G.f.forEach((f, i) => { f.x = reais[i].x; f.y = reais[i].y; });
-  for (const p of G.proj) desenharProjetil(p);
+  desenharTornados(); for (const p of G.proj) desenharProjetil(p);
   for (const p of G.part) {
     if (p.tela) continue;
     ctx.globalAlpha = 1 - p.t / p.vida;
@@ -2918,13 +2959,13 @@ function desenharAjuda(dt) {
     ['Andar / Pular (2x = pulo duplo)', `${t('esq')} ${t('dir')} / ${t('cima')}`],
     ['Correr: 2 toques na direção ou INVESTIDA', `${t('dir')} ${t('dir')} / ${t('dash')}`],
     ['Ataque (3x = combo; correndo / no ar muda)', t('atk')],
-    ['Projétil (15 de energia)', t('botaoEsp')],
-    ['Golpe especial: lado + ESPECIAL (20)', `→ + ${t('botaoEsp')}`],
-    ['Carregar energia: baixo + segurar ESPECIAL', `${t('baixo')} + ${t('botaoEsp')}`],
-    ['GOLPE FINAL: ATAQUE + ESPECIAL (cheia)', `${t('atk')} + ${t('botaoEsp')}`],
-    ['Defender (segurar)', `${t('def')} / ${t('baixo')}`],
-    ['Troca rápida: INVESTIDA apanhando (25)', t('dash')],
-    ['Provocar: baixo + INVESTIDA parado', `${t('baixo')} + ${t('dash')}`],
+    ['Projétil (15 de energia)', t('proj')],
+    ['Golpe especial (20)', t('esp')],
+    ['Carregar energia (segurar)', t('carga')],
+    ['GOLPE FINAL (energia cheia)', t('final')],
+    ['Defender (segurar baixo)', t('baixo')],
+    ['Troca rápida: apanhando (25)', t('sub')],
+    ['Provocar', t('provocar')],
     ['Queda rápida (no ar) / descer plataforma', `${t('baixo')} / ${t('baixo')} ${t('baixo')}`],
     ['Pular na parede (no canto, no ar)', t('cima')],
   ];
@@ -2958,10 +2999,10 @@ function desenharCartao(id, x, destaque, rotulo, cor) {
   texto(`${NOME_ELEM[P.elem] || P.elem}`, x + 80, 228, 8, P.cor, 'center', false);
   if (forte) texto(`forte contra ${forte}`, x - 95, 345, 8, '#7dff9a', 'center', false);
   if (fraco) texto(`fraco contra ${fraco}`, x + 95, 345, 8, '#ff8a8a', 'center', false);
-  const kE = teclasDe(MAPA_P1, 'botaoEsp'), kA = teclasDe(MAPA_P1, 'atk');
-  texto(`→+${kE}: ${P.especial}`, x, 375, 9, '#ffffff', 'center', false);
-  texto(`${kE}: ${P.projetil}`, x, 400, 9, '#ffffff', 'center', false);
-  texto(`${kA}+${kE}: ${P.final}`, x, 425, 9, '#ffcf4a', 'center', false);
+  const kE = teclasDe(MAPA_P1, 'esp'), kP = teclasDe(MAPA_P1, 'proj'), kF = teclasDe(MAPA_P1, 'final');
+  texto(`${kE}: ${P.especial}`, x, 375, 9, '#ffffff', 'center', false);
+  texto(`${kP}: ${P.projetil}`, x, 400, 9, '#ffffff', 'center', false);
+  texto(`${kF}: ${P.final}`, x, 425, 9, '#ffcf4a', 'center', false);
   texto('◀  ▶', x, 452, 12, destaque ? '#ffffff' : '#5a4d80');
 }
 
