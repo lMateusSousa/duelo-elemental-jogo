@@ -541,23 +541,24 @@ const ANIM_MAPA = {
     // em pé, de dois pés (pose da ficha); corrida 2 vira para a frente, 3-8 correndo
     ciclos: {
       idle: [1, 2, 3, 4, 5, 6, 7, 8], walk: [1, 2, 3, 4, 5, 6, 7, 8], corrida: [3, 4, 5, 6, 7, 8],
-      defesa: [1, 2, 1, 2], carga: [3, 4, 5, 6, 7, 8], vitoria: [1, 2, 3, 4, 5, 6, 7, 8],
+      // sem os quadros de costas (giro): vitoria/provocar 2-3, chute 2, especial 1, pulo 6
+      defesa: [1, 2, 1, 2], carga: [3, 4, 5, 6, 7, 8], vitoria: [5, 6, 7, 8, 7, 6],
     },
     repele: [3, 4], // explosão de vento da defesa quando REPELE
     passoCorrida: 320, dash: 5,
     voando: [2, 3, 4, 5], caido: [6, 7, 8], levantar: [0, 1, 2, 3, 4, 5, 6, 7, 8],
-    provocar: [1, 2, 3, 4, 5, 6, 7, 8],
-    // pulo: 1-2 agacha · 3 sobe · 4-6 mortal no vento · 7 desce · pousa agachado
-    pulo: { impulso: [1, 2], voo: [3, 4, 5, 6, 7], duplo: 5, despenca: 7, pouso: [2, 1] },
+    provocar: [1, 4, 5, 6, 7, 8],
+    // pulo: 1-2 agacha · 3 sobe · 4-5 mortal no vento · 7 desce · pousa agachado
+    pulo: { impulso: [1, 2], voo: [3, 4, 5, 7], duplo: 4, despenca: 7, pouso: [2, 1] },
     atq: {
       soco1: ['soco', [1, 3, 3, 4]],
       soco2: ['soco', [4, 5, 5, 6, 7]],
       projetil: ['projetil', [1, 2, 3, 4, 5, 6, 7]],   // Rajada Celestial: meia-lua de vento
-      soco3: ['chute', [1, 2, 3, 4, 5, 6, 7]],          // chute giratório
+      soco3: ['chute', [1, 3, 4, 5, 6, 7]],             // chute giratório
       corridaAtq: ['chute', [3, 4, 4, 5, 5, 6]],
       aereo: ['chute', [3, 4, 5, 5, 6]],
-      especial: ['especial', [1, 2, 3, 4, 5, 6, 7, 8]], // Mini Tornado: vira redemoinho e solta o tornado
-      final: ['especial', [1, 2, 3, 4, 5, 6, 7]],
+      especial: ['especial', [2, 3, 4, 5, 6, 7, 8]],    // Mini Tornado: vira redemoinho e solta o tornado
+      final: ['especial', [2, 3, 4, 5, 6, 7]],
     },
     dano: [1, 2, 3, 4],
   },
