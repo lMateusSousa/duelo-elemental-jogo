@@ -66,6 +66,8 @@ const PERS = {
     mecanica: 'carga', // cada golpe que acerta guarda 1 carga; com 3, o próximo golpe PARALISA
     stats: { forca: 3, vel: 5, defesa: 3, alcance: 3 },
     soAnim: true, // tudo a partir de assets/faisca_anim (cartao = arte grande para os menus)
+    cartaoAjuste: { esc: 0.8, dx: -22 },
+    energiaSozinha: 3, // energia por segundo, sempre (não precisa parar para carregar)
   },
 };
 const ORDEM_PERS = ['brasa', 'geada', 'ventokami', 'faisca'];
@@ -1898,6 +1900,8 @@ function atualizarMecanicas(dt) {
     } else if (f.calor > 0) f.calor = Math.max(0, f.calor - RAIVA_ESFRIA * dt);
     if (f.congelado > 0) f.congelado = Math.max(0, f.congelado - dt);
     if (f.paralisado > 0) f.paralisado = Math.max(0, f.paralisado - dt);
+    // Faísca é uma bateria: a energia enche sozinha com o tempo, sem parar para carregar
+    if (base.energiaSozinha && G.fase === 'luta' && f.est !== 'ko' && !G.cine) f.en = Math.min(100, f.en + base.energiaSozinha * dt);
     desenharCargaE(f);
     // gelo no chão: a dona desliza rápido, o oponente escorrega; em Fúria o Brasa fica "pesado demais"
     const gelo = zonaSob(f, 'gelo');
@@ -2937,8 +2941,10 @@ function desenharCartao(id, x, destaque, rotulo, cor) {
   ctx.fillRect(x - 190, 90, 380, 380);
   ctx.strokeStyle = destaque ? cor : '#3a2e5a'; ctx.lineWidth = 4; ctx.strokeRect(x - 190, 90, 380, 380);
   texto(rotulo, x, 115, 12, cor);
-  const esc = 190 / FOLHAS[id].alturaBase;
-  desenharSprite(id, destaque ? Math.floor(G.t * 2.5) % 2 : 0, x - 70, 330, 1, esc);
+  // arte larga (punhos da Faísca) encolhe e vai um pouco para a esquerda para não cobrir os textos
+  const aj = P.cartaoAjuste || { esc: 1, dx: 0 };
+  const esc = 190 / FOLHAS[id].alturaBase * aj.esc;
+  desenharSprite(id, destaque ? Math.floor(G.t * 2.5) % 2 : 0, x - 70 + aj.dx, 330, 1, esc);
   texto(P.nome, x + 80, 180, 20, P.cor2);
   texto(P.titulo, x + 80, 210, 8, '#a698c6', 'center', false);
   const nomes = { forca: 'FORÇA', vel: 'VELOC.', defesa: 'DEFESA', alcance: 'ALCANCE' };
