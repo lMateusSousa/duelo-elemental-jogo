@@ -36,8 +36,8 @@ const PERS = {
   geada: {
     id: 'geada', nome: 'GEADA', titulo: 'Raposa do Gelo Eterno', elem: 'gelo',
     // NINJA: muito rápida, pula alto, 2 pulos no ar, vira na hora; em troca, é frágil e leve
-    cor: '#4fb6ff', cor2: '#d6f3ff', vel: 365, pulo: 1090, gravMult: 0.74, flutua: 0.4, forca: 1.05, defesa: 1.0, peso: 0.95, projY: 98, // balanceado: era 0.95 / 0.85 / 0.8
-    corrida: 2.7, dashVel: 1280, puloDuplo: 0.95, pulosAr: 2, provocacao: 'Lento demais.',
+    cor: '#4fb6ff', cor2: '#d6f3ff', vel: 335, pulo: 1090, gravMult: 0.74, flutua: 0.4, forca: 1.05, defesa: 1.0, peso: 0.95, projY: 98, // balanceado: era 0.95 / 0.85 / 0.8 · vel era 365 (Faísca agora é a mais ágil)
+    corrida: 2.5, dashVel: 1200, puloDuplo: 0.95, pulosAr: 1, provocacao: 'Lento demais.', // só pulo duplo (era 2 pulos no ar)
     // movimento: arranca e para quase na hora, controle total no ar, quase sem derrapar
     mov: { acel: 5600, freio: 6000, acelAr: 4000, queda: 1.05, derrapagem: 0.05, coyote: 0.13, buffer: 0.15 },
     especial: 'Giro Glacial', projetil: 'Lança de Cristal', final: 'Nevasca Absoluta',
@@ -56,8 +56,19 @@ const PERS = {
     soAnim: true, pixelNitido: true,
     estilo: { sat: 1.35, con: 1.2, gama: 1.18 }, // contorno + cor mais forte para combinar com Brasa/Geada
   },
+  faisca: {
+    id: 'faisca', nome: 'FAISCA', titulo: 'Gatinha Robô Elétrica', elem: 'eletrico',
+    // A MAIS ÁGIL: anda em pé, corre de 4 como gato, PULO TRIPLO e AGARRA NA PAREDE; em troca aguenta pouco
+    cor: '#b45cff', cor2: '#7ff3ff', vel: 395, pulo: 1080, gravMult: 0.78, flutua: 0.45, forca: 1.02, defesa: 0.98, peso: 0.95, projY: 100, // CPU x CPU: Geada 50%, Brasa ~38% (fogo vence), Ventokami ~73% (vence vento)
+    corrida: 2.9, dashVel: 1400, puloDuplo: 0.92, pulosAr: 2, agarra: true, provocacao: 'Bzzt! Tá com medo?',
+    mov: { acel: 6200, freio: 6400, acelAr: 4600, queda: 1.05, derrapagem: 0.05, coyote: 0.14, buffer: 0.15 },
+    especial: 'Soco Trovão', projetil: 'Bola de Plasma', final: 'Sobrecarga Total',
+    mecanica: 'carga', // cada golpe que acerta guarda 1 carga; com 3, o próximo golpe PARALISA
+    stats: { forca: 3, vel: 5, defesa: 3, alcance: 3 },
+    soAnim: true, // tudo a partir de assets/faisca_anim (cartao = arte grande para os menus)
+  },
 };
-const ORDEM_PERS = ['brasa', 'geada', 'ventokami'];
+const ORDEM_PERS = ['brasa', 'geada', 'ventokami', 'faisca'];
 
 /*
  * Quadros da folha de sprites (4x4, da esquerda p/ direita, de cima p/ baixo):
@@ -532,6 +543,32 @@ const ANIM_MAPA = {
     atq: {},
     dano: [1, 2, 3, 4],
   },
+  faisca: {
+    // anda em pé; corre de 4 como gato (clipe 'corrida': 2-3 abaixa, 4-8 galope)
+    ciclos: {
+      idle: [1, 2, 3, 4, 5, 6, 7, 8], walk: [1, 2, 3, 4, 5, 6, 7, 8], corrida: [4, 5, 6, 7, 8],
+      defesa: [2, 3, 4, 3], carga: [2, 3, 4, 5, 6, 7, 8], vitoria: [1, 2, 3, 4, 5, 6, 7, 8],
+    },
+    passoCorrida: 260, dash: 6,
+    quatroApos: 0.35, // anda em pé só no começo; depois de 0,35 s andando já corre de 4
+    // derrubada: 2-4 voando para trás, 5-8 no chão; levanta num pulo de gato (0 = deitada)
+    voando: [2, 3, 4], caido: [5, 6, 7, 8], levantar: [0, 1, 2, 3, 4, 5, 6, 7, 8],
+    provocar: [1, 2, 3, 4, 5, 6, 7, 8],
+    parede: ['parede', [2, 3, 4]], // grudada na parede (costas na parede, olhando para a arena)
+    // pulo: 1-2 agacha · 3 sobe · 4 encolhida · 5-6 esticada · 7 pousa agachada
+    pulo: { impulso: [1, 2], voo: [3, 4, 5, 6], duplo: 4, despenca: 6, pouso: [7, 7] },
+    atq: {
+      soco1: ['soco', [1, 2, 3, 4]],
+      soco2: ['soco', [2, 4, 5, 5, 6, 7]],
+      projetil: ['especial', [2, 3, 4, 5, 6, 6, 6, 1]],   // junta a bola de plasma no punho e lança
+      soco3: ['chute', [1, 2, 3, 4, 5, 6, 7, 8]],          // chute giratório com o rabo-tomada
+      corridaAtq: ['chute', [3, 4, 5, 5, 5, 6, 7]],
+      aereo: ['chute', [3, 4, 4, 5, 5, 6]],
+      especial: ['especial', [2, 3, 4, 5, 6, 7, 8, 8]],   // Soco Trovão: carrega o punho e explode
+      final: ['especial', [2, 3, 4, 5, 6, 7, 8]],
+    },
+    dano: [1, 2, 3, 4],
+  },
   brasa: {
     // pesado: o ciclo da corrida também pula a saída da base; pulo com agachamento fundo
     ciclos: {
@@ -569,7 +606,14 @@ function quadroAnim(f) {
   const seqK = (q, seq, k) => (q && seq ? q[seq[Math.floor(clamp(k, 0, 0.999) * seq.length)]] || null : null);
   switch (f.est) {
     case 'idle': return ciclo('idle', G.t * 7 / 8);
-    case 'walk': return ciclo('walk', f.ciclo || 0);                   // avança pela distância andada
+    case 'walk':
+      // Faísca: andando um tempinho, cai de 4 e corre como gato
+      if (M.quatroApos) {
+        if (f.andarDesde == null || G.t - (f.andarUlt || 0) > 0.1) f.andarDesde = G.t; // começou a andar agora
+        f.andarUlt = G.t;
+        if (G.t - f.andarDesde > M.quatroApos) return ciclo('corrida', (f.ciclo || 0) * 0.8);
+      }
+      return ciclo('walk', f.ciclo || 0);                   // avança pela distância andada
     case 'corrida': return ciclo('corrida', (f.animDist || 0) / M.passoCorrida) || ciclo('walk', (f.animDist || 0) / 270);
     case 'dash': return A.corrida ? A.corrida[M.dash] : null;
     case 'freio': return A.idle[0];
@@ -586,6 +630,7 @@ function quadroAnim(f) {
     case 'air': {
       const q = A.pulo;
       if (!q) return null;
+      if (f.agarrada && M.parede && A[M.parede[0]]) { const s = M.parede[1]; return A[M.parede[0]][s[Math.floor(G.t * 6) % s.length]] || null; } // grudada na parede
       if (A.puloBola && !f.puloDuplo) {
         // pulo bolinha: impulso → sobe encolhendo → BOLINHA (2 quadros girando) → desenrola → pernas prontas
         const b2 = A.puloBola;
@@ -1239,6 +1284,7 @@ function poeira(f, n = 8) { particulas(f.x, CHAO - f.y - 4, n, ['#d8d0c0', '#b0a
 function coresElem(f) {
   if (f.p.elem === 'fogo') return ['#ff5a3c', '#ffb347', '#ffd166', '#fff3b0'];
   if (f.p.elem === 'vento') return ['#ff6fc8', '#c9a8ff', '#8fb8ff', '#ffffff'];
+  if (f.p.elem === 'eletrico') return ['#b45cff', '#7ff3ff', '#fff27a', '#ffffff'];
   return ['#4fb6ff', '#9fe0ff', '#d6f3ff', '#ffffff'];
 }
 
@@ -1249,7 +1295,7 @@ function apoioEm(x, y) {
 }
 
 function aterrissar(f) {
-  f.aereoUsado = false; f.puloDuplo = false; f.pulosAr = 0; f.flipNinja = false; f.dashAr = false; f.quedaRapida = false;
+  f.aereoUsado = false; f.puloDuplo = false; f.pulosAr = 0; f.flipNinja = false; f.agarrada = false; f.dashAr = false; f.quedaRapida = false;
   if (f.est === 'air') {
     // aterrissar: pesado (Brasa) faz tremer e levanta poeira; leve (Geada) é rápido
     const pesado = f.p.defesa > 1;
@@ -1337,11 +1383,12 @@ const vulneravel = (o) => o.invul <= 0 && o.est !== 'ko' && o.est !== 'caido' &&
 
 /* ---------------- Vantagem de elemento ----------------
  * Triângulo: fogo derrete gelo · gelo congela vento · vento apaga fogo.
+ * Elétrico: raio domina o céu (vence vento) · fogo derrete os circuitos (vence elétrico).
  * Com vantagem o golpe dá +10% ("SUPER EFETIVO!"); contra quem te vence, −8% ("pouco efetivo...").
  * Para um elemento novo (ex.: elétrico), é só incluir quem ele vence aqui.
  */
-const VENCE = { fogo: ['gelo'], gelo: ['vento'], vento: ['fogo'] };
-const NOME_ELEM = { fogo: 'FOGO', gelo: 'GELO', vento: 'VENTO' };
+const VENCE = { fogo: ['gelo', 'eletrico'], gelo: ['vento'], vento: ['fogo'], eletrico: ['vento'] };
+const NOME_ELEM = { fogo: 'FOGO', gelo: 'GELO', vento: 'VENTO', eletrico: 'ELETRICO' };
 // testado CPU x CPU: 1.2/0.85 deixava quem tem vantagem ganhar ~85%; 1.1/0.92 fica em ~65-78%
 const ELEM_FORTE = 1.1, ELEM_FRACO = 0.92;
 function vantagemElem(eAt, eDf) {
@@ -1551,6 +1598,14 @@ function atualizarLutador(f, o, inp, dt) {
         particulas(f.x, CHAO - f.y - 60, 6, ['#ffffff'], 120, 0.2, 5, 0);
       }
       if (f.quedaRapida) f.vy = Math.min(f.vy, -1250);
+      // FAÍSCA agarra na parede do cenário: encostou caindo e segurando para a parede → gruda e escorrega devagar,
+      // recupera os pulos no ar; apertar pulo salta da parede para o outro lado
+      const ladoParede = f.x <= 75 ? -1 : f.x >= ARENA_W - 75 ? 1 : 0;
+      f.agarrada = !!(f.p.agarra && ladoParede && d === ladoParede && f.vy <= 0 && !f.quedaRapida);
+      if (f.agarrada) {
+        f.vy = Math.max(f.vy, -70); f.vx = 0; f.face = -ladoParede; f.pulosAr = 0; f.puloDuplo = false; f.aereoUsado = false;
+        if (Math.random() < 0.3) particulas(f.x + ladoParede * 30, CHAO - f.y - rand(30, 90), 1, ['#fff27a', '#7ff3ff'], 60, 0.2, 3, 0);
+      }
       if (inp.p.has('atk') && !f.aereoUsado) { f.aereoUsado = true; iniciarAtq(f, 'aereo'); break; }
       if (inp.p.has('dash') && !f.dashAr) { iniciarDash(f, d || f.face); break; }
       if (inp.p.has('proj') && f.en >= ATQ.projetil.custo) { iniciarAtq(f, 'projetil'); break; }
@@ -1564,7 +1619,7 @@ function atualizarLutador(f, o, inp, dt) {
           particulas(f.x - parede * 20, CHAO - f.y - 60, 10, ['#d8d0c0', '#ffffff'], 160, 0.3, 6, 0);
           textoFlutuante(f.x, CHAO - f.y - 200, 'PULO NA PAREDE', '#ffffff', 10);
         } else if ((f.pulosAr || 0) < (f.p.pulosAr ?? 1)) {
-          f.pulosAr = (f.pulosAr || 0) + 1; // Geada (ninja) tem 2 pulos no ar, Brasa nenhum
+          f.pulosAr = (f.pulosAr || 0) + 1; // Faísca tem 2 pulos no ar (pulo triplo), Geada 1, Brasa nenhum
           // pulo duplo muda de direção na hora (sem direção apertada, perde metade do embalo)
           f.puloDuplo = true; f.puloSegurado = true; f.quedaRapida = false; f.flipNinja = false; f.vy = f.p.pulo * f.p.puloDuplo;
           f.duploT0 = f.t; // início deste pulo no ar (o mortal desenhado é cronometrado a partir daqui)
@@ -1708,7 +1763,7 @@ function atualizarProjeteis(dt) {
       p.morto = true;
       aplicarDano(p.dono, alvo, PROJ_HIT, Math.sign(p.vx), p.x, CHAO - p.y);
     }
-    const c = p.elem === 'fogo' ? ['#ff5a3c', '#ffb347', '#ffd166'] : ['#9fe0ff', '#d6f3ff', '#ffffff'];
+    const c = p.elem === 'fogo' ? ['#ff5a3c', '#ffb347', '#ffd166'] : p.elem === 'eletrico' ? ['#b45cff', '#7ff3ff', '#fff27a'] : ['#9fe0ff', '#d6f3ff', '#ffffff'];
     if (Math.random() < 0.8) G.part.push({ x: p.x - Math.sign(p.vx) * 20, y: CHAO - p.y + rand(-10, 10), vx: -p.vx * 0.1, vy: rand(-40, 40), vida: 0.35, t: 0, cor: escolha(c), tam: rand(3, 7), grav: 0 });
     if (p.x < -60 || p.x > ARENA_W + 60 || p.t > 2.5) p.morto = true;
   }
@@ -1775,6 +1830,41 @@ function mecanicaNoGolpe(at, df, bloqueou) {
   if (df.p.mecanica === 'calor') ganharCalor(df, bloqueou ? RAIVA_DEFESA : RAIVA_POR_GOLPE);
   if (bloqueou) return;
   if (at.p.mecanica === 'gelo') criarZona('gelo', df.x, superficieDe(df), at);
+  // FAÍSCA · CARGA ELÉTRICA: cada golpe que acerta guarda 1 carga; com 3, o próximo golpe paralisa
+  if (at.p.mecanica === 'carga' && df.hp > 0) {
+    if ((at.cargaE || 0) >= CARGA_MAX) {
+      at.cargaE = 0;
+      df.stun = Math.max(df.stun || 0, PARALISA_DUR); df.paralisado = PARALISA_DUR; df.vx *= 0.3;
+      textoFlutuante(df.x, CHAO - df.y - 200, 'PARALISADO!', '#fff27a', 13);
+      particulas(df.x, CHAO - df.y - 80, 26, ['#fff27a', '#7ff3ff', '#ffffff'], 380, 0.45, 5, 0);
+      G.shake = Math.max(G.shake, 7);
+    } else {
+      at.cargaE = (at.cargaE || 0) + 1;
+      if (at.cargaE >= CARGA_MAX) textoFlutuante(at.x, CHAO - at.y - 200, 'CARREGADA!', '#7ff3ff', 11);
+    }
+  }
+}
+const CARGA_MAX = 3, PARALISA_DUR = 0.75;
+
+// raios em volta de quem está paralisado
+function desenharParalisado(f) {
+  if (!(f.paralisado > 0)) return;
+  ctx.save();
+  ctx.lineWidth = 3; ctx.lineCap = 'round';
+  for (let k = 0; k < 3; k++) {
+    ctx.strokeStyle = k === 0 ? '#ffffff' : (k === 1 ? '#fff27a' : '#7ff3ff');
+    ctx.beginPath();
+    let x = f.x + rand(-45, 45), y = CHAO - f.y - rand(130, 160);
+    ctx.moveTo(x, y);
+    for (let i = 0; i < 5; i++) { x += rand(-22, 22); y += rand(18, 30); ctx.lineTo(x, y); }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+// faíscas nos punhos quando a Faísca está carregada (3 cargas)
+function desenharCargaE(f) {
+  if (f.p.mecanica !== 'carga' || (f.cargaE || 0) < CARGA_MAX) return;
+  if (Math.random() < 0.5) G.part.push({ x: f.x + f.face * rand(20, 55), y: CHAO - f.y - rand(50, 90), vx: rand(-90, 90), vy: -rand(20, 120), vida: 0.25, t: 0, cor: escolha(['#fff27a', '#7ff3ff', '#ffffff']), tam: rand(2, 4), grav: 0 });
 }
 
 function atualizarMecanicas(dt) {
@@ -1807,6 +1897,8 @@ function atualizarMecanicas(dt) {
       if (f.furia <= 0) { f.furia = 0; f.calor = 0; f.armadura = 0; textoFlutuante(f.x, CHAO - f.y - 200, 'esfriou...', '#c9bfb8', 10); }
     } else if (f.calor > 0) f.calor = Math.max(0, f.calor - RAIVA_ESFRIA * dt);
     if (f.congelado > 0) f.congelado = Math.max(0, f.congelado - dt);
+    if (f.paralisado > 0) f.paralisado = Math.max(0, f.paralisado - dt);
+    desenharCargaE(f);
     // gelo no chão: a dona desliza rápido, o oponente escorrega; em Fúria o Brasa fica "pesado demais"
     const gelo = zonaSob(f, 'gelo');
     if (gelo && gelo.dono === f) f.p = f.pRapido || (f.pRapido = { ...base, vel: base.vel * 1.3, corrida: base.corrida * 1.15 });
@@ -2438,6 +2530,7 @@ function poseDe(f) {
 
 function corElem(f, a = 1) {
   if (f.p.elem === 'vento') return `rgba(205,150,255,${a})`;
+  if (f.p.elem === 'eletrico') return `rgba(140,240,255,${a})`;
   return f.p.elem === 'fogo' ? `rgba(255,120,60,${a})` : `rgba(120,210,255,${a})`;
 }
 
@@ -2521,6 +2614,7 @@ function efeitosFrente(f, pose) {
   if ((f.est === 'provocar' || f.est === 'vitoria') && Math.random() < 0.35) {
     if (f.p.elem === 'fogo') G.part.push({ x: f.x + f.face * 40, y: CHAO - f.y - 150, vx: f.face * rand(20, 80), vy: -rand(60, 140), vida: 0.6, t: 0, cor: escolha(['#9a8f8a', '#c9bfb8', '#ffb347']), tam: rand(6, 12), grav: -60 });
     else if (f.p.elem === 'vento') G.part.push({ x: f.x + rand(-70, 70), y: CHAO - f.y - rand(20, 160), vx: rand(60, 160) * (Math.random() < 0.5 ? -1 : 1), vy: -rand(20, 80), vida: 0.8, t: 0, cor: escolha(coresElem(f)), tam: rand(3, 6), grav: 0 }); // pétalas de vento
+    else if (f.p.elem === 'eletrico') G.part.push({ x: f.x + rand(-60, 60), y: CHAO - f.y - rand(20, 170), vx: rand(-160, 160), vy: rand(-160, 160), vida: 0.22, t: 0, cor: escolha(['#fff27a', '#7ff3ff', '#ffffff']), tam: rand(2, 4), grav: 0 }); // faíscas
     else G.part.push({ x: f.x + rand(-70, 70), y: CHAO - f.y - rand(80, 200), vx: rand(-20, 20), vy: rand(20, 60), vida: 0.9, t: 0, cor: escolha(['#ffffff', '#d6f3ff', '#9fe0ff']), tam: rand(3, 6), grav: 0 });
   }
   if (f.est === 'vitoria' && Math.random() < 0.15) particulas(f.x + rand(-60, 60), CHAO - f.y - rand(60, 200), 3, ['#ffcf4a', '#ffffff'], 80, 0.5, 5, 0);
@@ -2547,6 +2641,21 @@ function desenharProjetil(p) {
     }
     ctx.strokeStyle = 'rgba(143,184,255,.7)'; ctx.lineWidth = 3;
     for (let i = 0; i < 3; i++) { const yy = (i - 1) * 12; ctx.beginPath(); ctx.moveTo(-20, yy); ctx.lineTo(-48 - i * 6, yy); ctx.stroke(); }
+  } else if (p.elem === 'eletrico') {
+    // Bola de Plasma: esfera roxa com miolo ciano e raios saindo
+    ctx.translate(p.x, y);
+    for (let i = 0; i < 4; i++) {
+      ctx.fillStyle = ['rgba(180,92,255,.45)', '#b45cff', '#7ff3ff', '#ffffff'][i];
+      ctx.beginPath(); ctx.arc(0, 0, 26 - i * 6 + Math.sin(G.t * 40 + i) * 2, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.strokeStyle = '#fff27a'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+    for (let k = 0; k < 3; k++) {
+      const ang = rand(0, Math.PI * 2);
+      ctx.beginPath(); ctx.moveTo(Math.cos(ang) * 18, Math.sin(ang) * 18);
+      ctx.lineTo(Math.cos(ang + 0.3) * 30, Math.sin(ang + 0.3) * 30);
+      ctx.lineTo(Math.cos(ang - 0.1) * 42, Math.sin(ang - 0.1) * 42);
+      ctx.stroke();
+    }
   } else {
     ctx.translate(p.x, y);
     ctx.scale(Math.sign(p.vx), 1);
@@ -2604,6 +2713,18 @@ function desenharBarraCalor(f, x, y, esq) {
   texto(furia ? 'FÚRIA' : 'RAIVA', esq ? x + w + 8 : x - 8, y + 5, 8, furia ? '#ffd166' : '#ffb347', esq ? 'left' : 'right', false);
 }
 
+// cargas da Faísca: 3 bolinhas que acendem; cheias piscam (próximo golpe paralisa)
+function desenharCargasE(f, x, y, esq) {
+  const n = f.cargaE || 0, cheia = n >= CARGA_MAX;
+  for (let i = 0; i < CARGA_MAX; i++) {
+    const cx = esq ? x + 8 + i * 22 : x + 130 - 8 - i * 22;
+    ctx.fillStyle = '#120c1e'; ctx.beginPath(); ctx.arc(cx, y + 5, 8, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = i < n ? (cheia && Math.floor(G.t * 10) % 2 ? '#fff27a' : '#7ff3ff') : '#2a2140';
+    ctx.beginPath(); ctx.arc(cx, y + 5, 6, 0, Math.PI * 2); ctx.fill();
+  }
+  texto(cheia ? 'CARREGADA' : 'CARGA', esq ? x + 72 : x + 58, y + 5, 8, cheia ? '#fff27a' : '#7ff3ff', esq ? 'left' : 'right', false);
+}
+
 function desenharHUDSolo() {
   const f = G.f[0];
   retratoLosango(f.id, 62, 62, 48, false, f.p.cor);
@@ -2623,6 +2744,7 @@ function desenharHUDSolo() {
   ];
   if (f.p.mecanica === 'calor') linhas.push(['RAIVA', f.furia > 0 ? `FÚRIA ${f.furia.toFixed(1)}s` : `${Math.round(f.calor || 0)}%`]);
   if (f.p.mecanica === 'gelo') linhas.push(['POÇAS DE GELO', String(G.zonas.filter((z) => z.tipo === 'gelo').length)]);
+  if (f.p.mecanica === 'carga') linhas.push(['CARGA', `${f.cargaE || 0}/${CARGA_MAX}`]);
   ctx.fillStyle = 'rgba(18,12,30,.75)'; ctx.fillRect(W - 300, 16, 284, 24 + linhas.length * 22);
   linhas.forEach(([a, b], i) => {
     texto(a, W - 288, 34 + i * 22, 9, '#a698c6', 'left', false);
@@ -2651,6 +2773,7 @@ function desenharHUD() {
     }
     texto(f.p.nome, esq ? bx : bx + 330, 92, 14, f.p.cor2, esq ? 'left' : 'right');
     if (f.p.mecanica === 'calor') desenharBarraCalor(f, esq ? bx : bx + 330 - 130, 126, esq);
+    if (f.p.mecanica === 'carga') desenharCargasE(f, esq ? bx : bx + 330 - 130, 126, esq);
     // lembrete das teclas de poder (só para quem joga)
     if ((esq && G.modo !== 'cpuvscpu') || G.modo === '2p') {
       const mapa = esq ? MAPA_P1 : MAPA_P2, k = teclasDe(mapa, 'botaoEsp'), a = teclasDe(mapa, 'atk');
@@ -2725,7 +2848,7 @@ function desenharLuta(dt) {
     else desenharSprite(r.id, r.q, r.x, CHAO - r.y, r.face, r.escala, true, 0, al);
   }
   const ordem = [...G.f].sort((a, b) => (a.est === 'atk' ? 1 : 0) - (b.est === 'atk' ? 1 : 0));
-  for (const f of ordem) { desenharLutador(f); desenharCongelado(f); }
+  for (const f of ordem) { desenharLutador(f); desenharCongelado(f); desenharParalisado(f); }
   G.f.forEach((f, i) => { f.x = reais[i].x; f.y = reais[i].y; });
   for (const p of G.proj) desenharProjetil(p);
   for (const p of G.part) {
