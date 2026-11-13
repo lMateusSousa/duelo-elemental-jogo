@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Duelo Elemental</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg: #0d0a16; --ink: #f3ecff; --muted: #a698c6; --line: #3a2e5a; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: 'Press Start 2P', monospace; }
+    body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 12px 16px; }
+    #tela {
+      width: min(100%, calc((100vh - 70px) * 16 / 9), 1440px);
+      aspect-ratio: 16 / 9;
+      background: #000;
+      border: 4px solid var(--line);
+      border-radius: 8px;
+      image-rendering: auto;
+    }
+    #dica { font-size: 10px; color: var(--muted); text-align: center; line-height: 1.8; }
+    #dica b { color: var(--ink); font-weight: normal; }
+  </style>
+</head>
+<body>
+  <canvas id="tela" width="960" height="540"></canvas>
+  <div id="dica">
+    <b>P1</b> A/D andar · W pular · <b>J</b> ataque · <b>K</b> especial (sozinho = projétil, → + K = golpe, ↓ + segurar K = carregar) · <b>L</b> defesa · <b>Shift</b> investida · J+K com energia cheia = FINAL
+    <br><b>P2</b> Setas · Numpad 1 ataque · 2 especial · 3 defesa · 0 investida · teclas e controle mudam no menu CONTROLES
+  </div>
+  <script src="sprites-data.js"></script>
+  <script src="partes-data.js"></script>
+  <script src="geada-anim-data.js"></script>
+  <script src="brasa-anim-data.js"></script>
+  <script src="ventokami-anim-data.js"></script>
+  <script src="geada-pulo-data.js"></script>
+  <script src="boneco.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>

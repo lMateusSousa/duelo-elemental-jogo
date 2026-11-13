@@ -1,0 +1,11 @@
+# Render Blueprint: publica o jogo como site estático (sem build, só os arquivos)
+services:
+  - type: web
+    name: duelo-elemental-jogo
+    runtime: static
+    buildCommand: ""
+    staticPublishPath: .
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: public, max-age=300
