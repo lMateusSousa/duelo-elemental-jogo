@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Laboratório de Golpes</title>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg: #0d0a16; --ink: #f3ecff; --muted: #a698c6; --line: #3a2e5a; --card: #171126; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font-family: 'Press Start 2P', monospace; padding: 16px; }
+    h1 { font-size: 16px; color: #ffcf4a; margin: 0 0 14px; }
+    .barra { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; align-items: center; }
+    button { font: inherit; font-size: 9px; background: var(--card); color: var(--ink); border: 2px solid var(--line); padding: 8px 10px; cursor: pointer; }
+    button.on { border-color: #ffcf4a; color: #ffcf4a; }
+    label { font-size: 9px; color: var(--muted); }
+    .grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+    .card { background: var(--card); border: 2px solid var(--line); padding: 10px; }
+    .card h2 { font-size: 11px; margin: 0 0 6px; }
+    .card canvas { width: 100%; aspect-ratio: 1; background: #221a36; image-rendering: auto; display: block; }
+    .info { font-size: 8px; color: var(--muted); line-height: 1.9; margin-top: 8px; min-height: 60px; }
+    .info b { color: var(--ink); font-weight: normal; }
+    #tela { display: none; }
+  </style>
+</head>
+<body>
+  <h1>LABORATÓRIO DE GOLPES</h1>
+  <div class="barra" id="golpes"></div>
+  <div class="barra">
+    <label>velocidade <input type="range" id="vel" min="0.2" max="1.5" step="0.1" value="1"></label>
+    <span id="velTxt" style="font-size:9px">1x</span>
+  </div>
+  <div class="grade" id="grade"></div>
+  <h1 style="margin-top:26px">EFEITOS DOS PODERES (sem o personagem)</h1>
+  <div class="grade" id="gradeFx"></div>
+
+  <!-- o jogo carrega escondido só para aproveitar as animações e a tabela de golpes -->
+  <canvas id="tela" width="960" height="540"></canvas>
+  <script src="sprites-data.js"></script>
+  <script src="partes-data.js"></script>
+  <script src="geada-anim-data.js"></script>
+  <script src="brasa-anim-data.js"></script>
+  <script src="ventokami-anim-data.js"></script>
+  <script src="faisca-anim-data.js"></script>
+  <script src="geada-pulo-data.js"></script>
+  <script src="boneco.js"></script>
+  <script src="game.js"></script>
+  <script>
+    // cada grupo = sequência de golpes tocada em loop (nomes de ATQ / ANIM_MAPA.atq)
+    const GRUPOS = [
+      { nome: 'Combo de socos', seq: ['soco1', 'soco2', 'soco3'] },
+      { nome: 'Ataque correndo', seq: ['corridaAtq'] },
+      { nome: 'Ataque no ar', seq: ['aereo'] },
+      { nome: 'Projétil', seq: ['projetil'] },
+      { nome: 'Especial', seq: ['especial'] },
+      { nome: 'Final', seq: ['final'] },
+      { nome: 'Carregando', ciclo: 'carga' },   // estado (não é golpe): toca o ciclo de carregar energia
+      { nome: 'Defesa', ciclo: 'defesa' },
+      { nome: 'Provocar', ciclo: 'provocar' },
+      { nome: 'Vitória', ciclo: 'vitoria' },
+    ];
+    const NOME_GOLPE = { soco1: '1º soco', soco2: '2º soco', soco3: '3º golpe', corridaAtq: 'correndo', aereo: 'no ar', projetil: 'projétil', especial: 'especial', final: 'final' };
+    let grupo = GRUPOS[0], vel = 1;
+    const ids = ['brasa', 'geada', 'ventokami', 'faisca'];
+    const cards = {};
+
+    function montar() {
+      const barra = document.getElementById('golpes');
+      GRUPOS.forEach((g, i) => {
+        const b = document.createElement('button'); b.textContent = g.nome; if (i === 0) b.className = 'on';
+        b.onclick = () => { grupo = g; t0 = performance.now(); [...barra.children].forEach((x) => x.className = ''); b.className = 'on'; atualizarInfo(); };
+        barra.appendChild(b);
+      });
+      const grade = document.getElementById('grade');
+      for (const id of ids) {
+        const div = document.createElement('div'); div.className = 'card';
+        div.innerHTML = `<h2 style="color:${PERS[id].cor2}">${PERS[id].nome}</h2><canvas width="320" height="320"></canvas><div class="info"></div>`;
+        grade.appendChild(div);
+        cards[id] = { cv: div.querySelector('canvas'), info: div.querySelector('.info') };
+      }
+      document.getElementById('vel').oninput = (e) => { vel = +e.target.value; document.getElementById('velTxt').textContent = vel + 'x'; };
+      atualizarInfo();
+    }
+
+    function nomeDoGolpe(id, g) {
+      if (g === 'projetil') return PERS[id].projetil;
+      if (g === 'especial') return PERS[id].especial;
+      if (g === 'final') return PERS[id].final;
+      return NOME_GOLPE[g];
+    }
+    function atualizarInfo() {
+      if (grupo.ciclo) {
+        const txt = { carga: 'segura o botão: enche a energia (barra de baixo)', defesa: 'segura baixo: bloqueia (toma só um pouco de dano)', provocar: 'só zoeira: provoca o oponente', vitoria: 'comemoração no fim da luta' }[grupo.ciclo];
+        for (const id of ids) cards[id].info.innerHTML = `<b>${grupo.nome}</b><br>${txt}` + (grupo.ciclo === 'carga' && PERS[id].energiaSozinha ? '<br>(a Faísca também enche sozinha com o tempo)' : '');
+        return;
+      }
+      for (const id of ids) {
+        const linhas = grupo.seq.map((g) => {
+          const d = ATQ[g], dano = g === 'projetil' ? PROJ_HIT.dano : d.dano;
+          const extra = [d.derruba ? 'derruba' : '', d.custo ? `custa ${d.custo}` : ''].filter(Boolean).join(' · ');
+          return `<b>${nomeDoGolpe(id, g)}</b>: ${dano ? Math.round(dano * PERS[id].forca) + ' de dano' : 'cena especial'} · ${d.dur.toFixed(2)}s${extra ? ' · ' + extra : ''}`;
+        });
+        cards[id].info.innerHTML = linhas.join('<br>');
+      }
+    }
+
+    let t0 = performance.now();
+    function quadroDe(id, nome, k) {
+      const A = ANIMS[id], m = ANIM_MAPA[id] && ANIM_MAPA[id].atq[nome];
+      if (!A) return null;
+      if (!m || !A[m[0]]) return A.idle ? A.idle[0] : null;
+      const seq = m[1];
+      return A[m[0]][seq[Math.min(seq.length - 1, Math.floor(k * seq.length))]] || null;
+    }
+    // estados em ciclo (carregar, defesa, provocar, vitória): quadros do ANIM_MAPA + aura de energia na carga
+    function quadroCiclo(id, nome, t) {
+      const A = ANIMS[id], M = ANIM_MAPA[id];
+      const seq = (M.ciclos && M.ciclos[nome]) || M[nome];
+      if (!A[nome] || !seq) return A.idle[0];
+      const fps = nome === 'provocar' ? 9 : nome === 'carga' ? 10 : 7;
+      return A[nome][seq[Math.floor(t * fps) % seq.length]] || A.idle[0];
+    }
+    function desenharCiclo() {
+      const t = (performance.now() - t0) / 1000 * vel;
+      for (const id of ids) {
+        const { cv } = cards[id], g = cv.getContext('2d');
+        g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, cv.width, cv.height);
+        g.fillStyle = '#2c2344'; g.fillRect(0, 262, cv.width, 2);
+        const base = ANIMS[id].idle[0], s = 190 / base.alturaCorpo, cx = 160;
+        if (grupo.ciclo === 'carga') {
+          // aura igual à do jogo: elipses na cor do personagem pulsando
+          for (let i = 0; i < 3; i++) {
+            g.globalAlpha = 0.22 - i * 0.05; g.fillStyle = PERS[id].cor;
+            g.beginPath(); g.ellipse(cx, 160, 62 + i * 16 + Math.sin(t * 14 + i) * 5, 100 + i * 14, 0, 0, Math.PI * 2); g.fill();
+          }
+          g.globalAlpha = 1;
+        }
+        const fr = quadroCiclo(id, grupo.ciclo, t);
+        g.drawImage(fr.c, cx - fr.ax * s, 262 - fr.ay * s, fr.c.width * s, fr.c.height * s);
+        g.fillStyle = '#ffcf4a'; g.font = '10px "Press Start 2P"'; g.textAlign = 'center';
+        g.fillText(grupo.nome, 160, 300);
+      }
+      desenharFxLab();
+      requestAnimationFrame(desenhar);
+    }
+    function desenhar() {
+      if (grupo.ciclo) return desenharCiclo();
+      G.t = performance.now() / 1000;          // o laço do jogo está parado: o relógio dos efeitos anda por aqui
+      const lanca = grupo.seq.length === 1 && grupo.seq[0] === 'projetil';
+      const pausa = 0.35; // respiro parado entre uma repetição e outra
+      const total = grupo.seq.reduce((s, g) => s + ATQ[g].dur, 0) + (lanca ? VOO : 0) + pausa;
+      const t = ((performance.now() - t0) / 1000 * vel) % total;
+      for (const id of ids) {
+        const { cv } = cards[id], g = cv.getContext('2d');
+        g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, cv.width, cv.height);
+        g.fillStyle = '#2c2344'; g.fillRect(0, 262, cv.width, 2); // chão
+        let acc = 0, fr = null, atual = null, k = 0;
+        for (const nome of grupo.seq) {
+          const d = ATQ[nome].dur;
+          if (t < acc + d) { atual = nome; k = (t - acc) / d; break; }
+          acc += d;
+        }
+        if (atual) fr = quadroDe(id, atual, k);
+        else fr = ANIMS[id] && ANIMS[id].idle ? ANIMS[id].idle[1 + Math.floor(t * 7) % 8] || ANIMS[id].idle[0] : null;
+        if (lanca) {
+          // Projétil: o personagem solta a skill de verdade (mesmo desenho e mesma origem do jogo)
+          const def = { ...ATQ.projetil, ...((PERS[id].atqMod && PERS[id].atqMod.projetil) || {}) }; // ex.: Faísca solta mais tarde
+          const tProj = t - def.spawn, vivo = tProj >= 0 && tProj < ATQ.projetil.dur - ATQ.projetil.spawn + VOO;
+          if (vivo && PERS[id].elem === 'gelo' && ANIMS[id].rajada) fr = ANIMS[id].rajada[1]; // segura as mãos estendidas enquanto o jato sai
+          else if (!atual && vivo) fr = quadroDe(id, 'projetil', 0.999);
+          if (fr) desenharPersCard(g, id, fr, PX_LANCA, K_LANCA);
+          if (vivo) lancarNoCard(g, id, tProj);
+          g.fillStyle = '#ffcf4a'; g.font = '10px "Press Start 2P"'; g.textAlign = 'center';
+          g.fillText(nomeDoGolpe(id, 'projetil'), 160, 300);
+          continue;
+        }
+        if (fr) {
+          const base = ANIMS[id].idle[0], s = 190 / base.alturaCorpo;
+          g.imageSmoothingEnabled = true;
+          g.drawImage(fr.c, 120 - fr.ax * s, 262 - fr.ay * s, fr.c.width * s, fr.c.height * s);
+        }
+        g.fillStyle = '#ffcf4a'; g.font = '10px "Press Start 2P"'; g.textAlign = 'center';
+        g.fillText(atual ? nomeDoGolpe(id, atual) : '', 160, 300);
+      }
+      desenharFxLab();
+      requestAnimationFrame(desenhar);
+    }
+    /* ---------- lançando o projétil no card ----------
+     * Personagem menor (K_LANCA = card/jogo) e mais à esquerda para caber o voo. O projétil é desenhado pelo
+     * próprio jogo no canvas escondido e copiado para o card na mesma escala do personagem. */
+    const VOO = 0.45, K_LANCA = 0.9, PX_LANCA = 55, GX = 200;
+    function desenharPersCard(g, id, fr, px, k) {
+      const s = ALTURA_PERS * k / fr.alturaCorpo;
+      g.imageSmoothingEnabled = true;
+      g.drawImage(fr.c, px - fr.ax * s, 262 - fr.ay * s, fr.c.width * s, fr.c.height * s);
+    }
+    function lancarNoCard(g, id, tProj) {
+      const dono = { x: GX, y: 0, face: 1, p: PERS[id], est: 'atk', id };
+      const p = novoProjetil(dono); p.x += p.vx * tProj; p.t = tProj;   // mesma origem do jogo (mão/boca)
+      const saida = saidaFx(novoProjetil(dono)); saida.t = tProj;
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W, H);
+      ctx.save(); try { desenharProjetil(p); if (saida.t < saida.dur) desenharSaida(saida); } catch (e) { console.warn(id, 'lançar', e); } ctx.restore();
+      const tela = document.getElementById('tela');
+      g.drawImage(tela, GX - PX_LANCA / K_LANCA, CHAO - 262 / K_LANCA, 320 / K_LANCA, 320 / K_LANCA, 0, 0, 320, 320);
+    }
+    /* ---------- efeitos sem personagem ----------
+     * Usa as funções de desenho do próprio jogo no canvas escondido (#tela) e copia o pedaço para cada card.
+     * Cada card passa pelos efeitos daquele personagem, um de cada vez. */
+    const CX = 480, CY = 300; // centro do recorte no canvas do jogo
+    const yMundo = (yTela) => CHAO - yTela; // as funções do jogo desenham em CHAO - y
+    const falso = (id, extra = {}) => ({ id, p: PERS[id], face: 1, x: CX, y: yMundo(CY + 90), ...extra });
+    const fogoParts = [];
+    const FX = {
+      brasa: [
+        ['Aura de carga', () => desenharFx('aura_fogo', CX, CY, 170, { brilho: true, alpha: 0.9 })],
+        ['Investida de Chamas (especial)', (k) => desenharFx('proj_fogo', CX - 60 + k * 120, CY, 260, {})],
+        ['Impacto ao acertar', (k) => desenharFx('impacto_fogo', CX, CY, 150, { k, brilho: true, alpha: k < 0.7 ? 1 : (1 - k) / 0.3 })],
+        ['Sopro de Fogo (projétil)', (k) => desenharProjetil({ x: CX - 140 + k * 280, y: yMundo(CY), vx: 660, elem: 'fogo' })],
+        ['Corte Crescente (rastro)', (k) => arcoGolpe(falso('brasa'), CX - 40, CY, 125, -1.9, 1.5, Math.min(1, k * 1.6), 22)],
+        ['Fúria (chamas)', () => chamasNoCorpo(falso('brasa', { y: yMundo(CY + 90) }), [[-38, 0, 0], [34, 4, 3], [-10, 40, 5], [18, 70, 1.5], [-28, 90, 6.5]], 70, 0.9)],
+      ],
+      geada: [
+        ['Aura de carga', () => desenharFx('aura_gelo', CX, CY, 170, { brilho: true, alpha: 0.9 })],
+        ['Prisão de Gelo (estacas)', (k) => { const es = G.estacas; G.estacas = [{ x: CX, y: yMundo(CY + 110), t: k * ESTACAS.dura }]; desenharEstacas(); G.estacas = es; }],
+        ['Impacto ao acertar', (k) => desenharFx('impacto_gelo', CX, CY, 150, { k, brilho: true, alpha: k < 0.7 ? 1 : (1 - k) / 0.3 })],
+        ['Lança de Cristal (projétil)', (k) => desenharProjetil({ x: CX - 140 + k * 280, y: yMundo(CY), vx: 660, elem: 'gelo' })],
+        ['Giro Glacial (rastro)', (k) => arcoGolpe(falso('geada'), CX - 40, CY, 125, -1.9, 1.5, Math.min(1, k * 1.6), 22)],
+        ['Poça de gelo + congelado', (k) => {
+          const zs = G.zonas; G.zonas = [{ tipo: 'gelo', x: CX, y: yMundo(CY + 100), larg: 140, vida: 5, dur: 5 }];
+          desenharZonas(); G.zonas = zs;
+          if (k > 0.4) desenharCongelado(falso('geada', { congelado: 1, y: yMundo(CY + 100) }));
+        }],
+      ],
+      ventokami: [
+        ['Aura de carga', () => desenharFx('aura_vento', CX, CY, 170, { brilho: true, alpha: 0.9 })],
+        ['Repele (vento pontudo)', (k) => desenharFx('repele', CX, CY, 150, { k, brilho: true })],
+        ['Impacto ao acertar', (k) => desenharFx('impacto_vento', CX, CY, 150, { k, brilho: true, alpha: k < 0.7 ? 1 : (1 - k) / 0.3 })],
+        ['Rajada Celestial (projétil)', (k) => desenharProjetil({ x: CX - 140 + k * 280, y: yMundo(CY), vx: 660, elem: 'vento' })],
+        ['Mini Tornado', (k) => {
+          const ts = G.tornados; G.tornados = [{ x: CX - 100 + k * 200, y: yMundo(CY + 110), t: Math.min(k * TORNADO.vida, TORNADO.vida - 0.31) + 0.2 }];
+          desenharTornados(); G.tornados = ts;
+        }],
+        ['Bola de ar', () => desenharBolaAr(falso('ventokami', { bolaAr: 10, y: yMundo(CY + 40) }))],
+      ],
+      faisca: [
+        ['Aura de carga', () => desenharFx('aura_eletrico', CX, CY, 170, { brilho: true, alpha: 0.9 })],
+        ['Teleporte (portal de plasma)', (k) => desenharFx('teleporte', CX, CY, 150, { k, brilho: true })],
+        ['Impacto ao acertar', (k) => desenharFx('impacto_eletrico', CX, CY, 150, { k, brilho: true, alpha: k < 0.7 ? 1 : (1 - k) / 0.3 })],
+        ['Bola de Plasma (projétil)', (k) => desenharProjetil({ x: CX - 140 + k * 280, y: yMundo(CY), vx: 660, elem: 'eletrico' })],
+        ['Soco Trovão (rastro)', (k) => arcoGolpe(falso('faisca'), CX - 40, CY, 125, -1.9, 1.5, Math.min(1, k * 1.6), 22)],
+        ['Paralisia (3 cargas)', () => desenharParalisado(falso('faisca', { paralisado: 1, y: yMundo(CY + 90) }))],
+      ],
+    };
+    const fxCards = {};
+    function montarFx() {
+      const grade = document.getElementById('gradeFx');
+      for (const id of ids) {
+        const div = document.createElement('div'); div.className = 'card';
+        div.innerHTML = `<h2 style="color:${PERS[id].cor2}">${PERS[id].nome}</h2><canvas width="320" height="320"></canvas><div class="info"></div>`;
+        grade.appendChild(div);
+        fxCards[id] = { cv: div.querySelector('canvas'), info: div.querySelector('.info') };
+      }
+    }
+    let tFx0 = performance.now();
+    function desenharFxLab() {
+      const DUR = 1.6;                                   // segundos de cada efeito
+      const t = (performance.now() - tFx0) / 1000 * vel;
+      const tela = document.getElementById('tela');
+      for (const id of ids) {
+        const lista = FX[id], i = Math.floor(t / DUR) % lista.length, k = (t % DUR) / DUR;
+        ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W, H);
+        ctx.save(); try { lista[i][1](k); } catch (e) { console.warn(id, lista[i][0], e); } ctx.restore();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        const g = fxCards[id].cv.getContext('2d');
+        g.clearRect(0, 0, 320, 320);
+        g.drawImage(tela, CX - 160, CY - 160, 320, 320, 0, 0, 320, 320);
+        fxCards[id].info.innerHTML = lista.map((e, j) => (j === i ? `<b>▶ ${e[0]}</b>` : e[0])).join('<br>');
+      }
+    }
+    // o jogo também desenha no #tela todo quadro: paramos o laço dele para o canvas ficar só nosso
+    function pararJogo() { if (typeof laco === 'function') window.laco = () => {}; }
+
+    // espera o jogo terminar de carregar as animações
+    (function esperar() {
+      if (typeof ANIMS !== 'undefined' && ids.every((id) => ANIMS[id] && ANIMS[id].idle)) { pararJogo(); montar(); montarFx(); desenhar(); }
+      else setTimeout(esperar, 200);
+    })();
+  </script>
+</body>
+</html>
